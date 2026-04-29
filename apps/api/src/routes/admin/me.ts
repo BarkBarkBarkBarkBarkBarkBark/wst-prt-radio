@@ -10,7 +10,7 @@ interface UserRow {
 }
 
 const meRoute: FastifyPluginAsync = async (fastify) => {
-  fastify.get('/admin/me', { preHandler: requireSession }, async (request, reply) => {
+  fastify.get('/admin/me', { preHandler: requireSession, config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async (request, reply) => {
     const db = getDb();
     const user = db
       .prepare('SELECT id, email, role, created_at FROM users WHERE id = ?')

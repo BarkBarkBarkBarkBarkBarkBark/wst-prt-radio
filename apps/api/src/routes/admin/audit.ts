@@ -3,7 +3,7 @@ import { requireSession } from '../../plugins/auth.js';
 import { getDb } from '../../db/client.js';
 
 const auditRoute: FastifyPluginAsync = async (fastify) => {
-  fastify.get('/admin/audit', { preHandler: requireSession }, async (request, reply) => {
+  fastify.get('/admin/audit', { preHandler: requireSession, config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (request, reply) => {
     const db = getDb();
     const { limit = '50', offset = '0' } = request.query as { limit?: string; offset?: string };
 

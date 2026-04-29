@@ -10,7 +10,7 @@ interface LiveSessionRow {
 }
 
 const liveSessionRoute: FastifyPluginAsync = async (fastify) => {
-  fastify.get('/public/live-session', async (_request, reply) => {
+  fastify.get('/public/live-session', { config: { rateLimit: { max: 120, timeWindow: '1 minute' } } }, async (_request, reply) => {
     const db = getDb();
     const row = db
       .prepare(

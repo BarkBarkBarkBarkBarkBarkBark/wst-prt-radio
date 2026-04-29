@@ -5,7 +5,7 @@ import { getLatestNowPlaying } from '../../services/azuracastService.js';
 import { getDb } from '../../db/client.js';
 
 const dashboardRoute: FastifyPluginAsync = async (fastify) => {
-  fastify.get('/admin/dashboard', { preHandler: requireSession }, async (_request, reply) => {
+  fastify.get('/admin/dashboard', { preHandler: requireSession, config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async (_request, reply) => {
     const db = getDb();
     const [mode, nowPlaying] = await Promise.all([
       computeCurrentState(),

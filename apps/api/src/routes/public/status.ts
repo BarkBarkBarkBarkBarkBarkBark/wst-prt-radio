@@ -12,7 +12,7 @@ interface LiveSessionRow {
 }
 
 const statusRoute: FastifyPluginAsync = async (fastify) => {
-  fastify.get('/public/status', async (_request, reply) => {
+  fastify.get('/public/status', { config: { rateLimit: { max: 120, timeWindow: '1 minute' } } }, async (_request, reply) => {
     const mode = await computeCurrentState();
     const nowPlaying = getLatestNowPlaying();
 

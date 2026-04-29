@@ -3,7 +3,7 @@ import { nanoid } from 'nanoid';
 import { getDb } from '../../db/client.js';
 
 const cloudflareStreamWebhook: FastifyPluginAsync = async (fastify) => {
-  fastify.post('/webhooks/cloudflare-stream', async (request, reply) => {
+  fastify.post('/webhooks/cloudflare-stream', { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (request, reply) => {
     const db = getDb();
     const payload = request.body as Record<string, unknown>;
     const eventType = (payload?.['type'] as string) ?? 'unknown';
