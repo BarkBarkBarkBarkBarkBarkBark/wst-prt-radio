@@ -386,6 +386,7 @@ env_vars:
     AZURACAST_PUBLIC_STREAM_URL: { required: true }
     AZURACAST_PUBLIC_API_URL: { required: true }
     AZURACAST_API_KEY:        { required: true,  secret: true }
+    AZURACAST_STATION_ID:     { required: false, default: "1", description: "AzuraCast station numeric ID" }
     CLOUDFLARE_ACCOUNT_ID:    { required: true }
     CLOUDFLARE_STREAM_API_TOKEN: { required: true, secret: true }
     CLOUDFLARE_LIVE_INPUT_ID: { required: true }

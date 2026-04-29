@@ -28,7 +28,7 @@ const liveRoute: FastifyPluginAsync = async (fastify) => {
   // Open Web DJ link (audio live via AzuraCast)
   fastify.post(
     '/admin/live/audio/open-web-dj-link',
-    { preHandler: requireSession },
+    { preHandler: requireSession, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },
     async (request, reply) => {
       const webDjUrl = `${env.AZURACAST_BASE_URL}/public/${env.AZURACAST_STATION_ID}/webdj`;
       writeAudit(
@@ -45,7 +45,7 @@ const liveRoute: FastifyPluginAsync = async (fastify) => {
   // Start a video live session
   fastify.post(
     '/admin/live/video/session',
-    { preHandler: requireSession },
+    { preHandler: requireSession, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
     async (request, reply) => {
       const parsed = StartVideoSessionSchema.safeParse(request.body);
       if (!parsed.success) {
@@ -72,7 +72,7 @@ const liveRoute: FastifyPluginAsync = async (fastify) => {
   // End a video live session
   fastify.post(
     '/admin/live/video/end',
-    { preHandler: requireSession },
+    { preHandler: requireSession, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
     async (request, reply) => {
       const db = getDb();
       const session = db

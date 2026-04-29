@@ -56,7 +56,7 @@ const CreateSchema = z.object({
 const UpdateSchema = CreateSchema.partial();
 
 const destinationsRoute: FastifyPluginAsync = async (fastify) => {
-  fastify.get('/admin/destinations', { preHandler: requireSession }, async (_request, reply) => {
+  fastify.get('/admin/destinations', { preHandler: requireSession, config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async (_request, reply) => {
     const db = getDb();
     const rows = db
       .prepare('SELECT id, kind, name, enabled, url, sort_order, created_at, updated_at FROM destinations ORDER BY sort_order ASC')
@@ -64,7 +64,7 @@ const destinationsRoute: FastifyPluginAsync = async (fastify) => {
     return reply.send(rows.map(rowToDestination));
   });
 
-  fastify.post('/admin/destinations', { preHandler: requireSession }, async (request, reply) => {
+  fastify.post('/admin/destinations', { preHandler: requireSession, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (request, reply) => {
     const parsed = CreateSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.status(400).send({ error: 'Bad Request', issues: parsed.error.issues });
@@ -95,7 +95,7 @@ const destinationsRoute: FastifyPluginAsync = async (fastify) => {
     return reply.status(201).send({ id, kind, name, enabled, url, sortOrder, createdAt: now, updatedAt: now });
   });
 
-  fastify.patch('/admin/destinations/:id', { preHandler: requireSession }, async (request, reply) => {
+  fastify.patch('/admin/destinations/:id', { preHandler: requireSession, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const parsed = UpdateSchema.safeParse(request.body);
     if (!parsed.success) {
@@ -128,7 +128,7 @@ const destinationsRoute: FastifyPluginAsync = async (fastify) => {
     return reply.send({ ok: true });
   });
 
-  fastify.delete('/admin/destinations/:id', { preHandler: requireSession }, async (request, reply) => {
+  fastify.delete('/admin/destinations/:id', { preHandler: requireSession, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const db = getDb();
     const existing = db.prepare('SELECT id FROM destinations WHERE id = ?').get(id);
@@ -140,7 +140,7 @@ const destinationsRoute: FastifyPluginAsync = async (fastify) => {
   });
 
   // Test a destination by attempting to create a CF output
-  fastify.post('/admin/destinations/:id/test', { preHandler: requireSession }, async (request, reply) => {
+  fastify.post('/admin/destinations/:id/test', { preHandler: requireSession, config: { rateLimit: { max: 5, timeWindow: '1 minute' } } }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const db = getDb();
     const row = db.prepare('SELECT id, url FROM destinations WHERE id = ?').get(id) as { id: string; url: string } | undefined;

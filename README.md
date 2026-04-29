@@ -168,6 +168,7 @@ pnpm --filter web dev
 | `AZURACAST_PUBLIC_STREAM_URL` | Yes | e.g. `https://radio.wstprtradio.com/radio.mp3` |
 | `AZURACAST_PUBLIC_API_URL` | Yes | e.g. `https://radio.wstprtradio.com/api` |
 | `AZURACAST_API_KEY` | Yes ⚠️ | AzuraCast API key |
+| `AZURACAST_STATION_ID` | No (default `1`) | AzuraCast station numeric ID — check your station URL |
 | `CLOUDFLARE_ACCOUNT_ID` | Yes | Cloudflare account ID |
 | `CLOUDFLARE_STREAM_API_TOKEN` | Yes ⚠️ | Cloudflare Stream API token |
 | `CLOUDFLARE_LIVE_INPUT_ID` | Yes | Cloudflare live input ID |

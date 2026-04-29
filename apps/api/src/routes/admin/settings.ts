@@ -31,7 +31,7 @@ const PatchSettingsSchema = z.object({
 });
 
 const settingsRoute: FastifyPluginAsync = async (fastify) => {
-  fastify.get('/admin/settings', { preHandler: requireSession }, async (_request, reply) => {
+  fastify.get('/admin/settings', { preHandler: requireSession, config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (_request, reply) => {
     const db = getDb();
     const row = db
       .prepare(
@@ -60,7 +60,7 @@ const settingsRoute: FastifyPluginAsync = async (fastify) => {
     });
   });
 
-  fastify.patch('/admin/settings', { preHandler: requireSession }, async (request, reply) => {
+  fastify.patch('/admin/settings', { preHandler: requireSession, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (request, reply) => {
     const parsed = PatchSettingsSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.status(400).send({ error: 'Bad Request', issues: parsed.error.issues });
