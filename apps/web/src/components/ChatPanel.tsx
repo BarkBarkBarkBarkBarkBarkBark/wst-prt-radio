@@ -53,7 +53,7 @@ export function ChatPanel() {
         ))}
       </div>
 
-      {/* Input */}
+      {/* Input — Phase 1: decorative mock. Phase 4 will wire up Supabase Realtime. */}
       <div className="px-4 py-3 border-t border-stone-200 flex-shrink-0">
         <input
           ref={inputRef}
