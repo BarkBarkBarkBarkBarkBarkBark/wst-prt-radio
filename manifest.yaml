@@ -1,0 +1,564 @@
+spec_version: "1.0"
+
+# ──────────────────────────────────────────────────────────────
+#  wstprtradio · project manifest
+#  Interpreted & optimized from project README spec.
+# ──────────────────────────────────────────────────────────────
+
+project:
+  name: wstprtradio
+  objective: >
+    Always-on radio website with a public listener experience,
+    an authenticated admin control plane, a small Fastify backend,
+    an AzuraCast AutoDJ/live-takeover station, and a v1.0
+    architecture that is multicast-ready for live video events.
+
+  constraints:
+    - Public frontend on Vercel only
+    - Control backend on Fly.io only
+    - AzuraCast on a dedicated VM (not Fly, not Vercel)
+    - No terminal or localhost required for the operator during normal use
+    - Live takeover always falls back to AutoDJ automatically
+    - Architecture must be multicast-ready at v1.0
+
+  stack:
+    monorepo: true
+    package_manager: pnpm
+    language: TypeScript
+    frontend: "Next.js 14 App Router"
+    frontend_host: Vercel
+    backend: "Fastify (Node.js LTS)"
+    backend_host: Fly.io
+    database: "SQLite via better-sqlite3 on Fly volume"
+    station_backend: AzuraCast
+    live_video: "Cloudflare Stream"
+    fallback_broadcaster: BUTT
+
+  do_not:
+    - Use BUTT as a backend (it is a client-side desktop tool only)
+    - Use Discord as a media ingest or switching layer
+    - Put media plane traffic through Vercel
+    - Use Tailscale in the media path for public listeners
+    - Block shipping on TikTok automation
+    - Redesign this architecture
+
+# ──────────────────────────────────────────────────────────────
+#  Domains
+# ──────────────────────────────────────────────────────────────
+
+domains:
+  public_site:     wstprtradio.com
+  admin_site:      admin.wstprtradio.com
+  api:             api.wstprtradio.com
+  radio_stream:    radio.wstprtradio.com
+  azuracast_admin: azura-admin.wstprtradio.com
+
+# ──────────────────────────────────────────────────────────────
+#  Repository layout
+# ──────────────────────────────────────────────────────────────
+
+repo:
+  root_files:
+    - pnpm-workspace.yaml
+    - package.json          # workspace root, dev tooling only
+    - tsconfig.base.json
+    - .eslintrc.js
+    - .prettierrc
+    - .env.example
+
+  packages:
+    apps/web:
+      type: next_app
+      description: "Next.js App Router – public site + admin UI"
+      host: Vercel
+    apps/api:
+      type: fastify_app
+      description: "Fastify REST API – auth, state, destinations, webhooks"
+      host: Fly.io
+    packages/shared:
+      type: lib
+      description: "Shared TypeScript types, Zod schemas, state enums"
+    packages/ui:
+      type: lib
+      description: "Shared Tailwind/Radix UI components"
+    infra/fly:
+      type: config
+      description: "fly.toml, deploy helpers"
+    infra/vercel:
+      type: config
+      description: "vercel.json, env documentation"
+    infra/azuracast:
+      type: config
+      description: "Deployment notes, env templates, reverse-proxy examples"
+    docs:
+      type: docs
+      description: "Operator runbooks"
+
+# ──────────────────────────────────────────────────────────────
+#  State machine
+# ──────────────────────────────────────────────────────────────
+
+state_machine:
+  states: [autodj, live_audio, live_video, degraded]
+  initial: autodj
+  transitions:
+    - { from: autodj,      to: live_audio, when: "AzuraCast reports live DJ connected" }
+    - { from: autodj,      to: live_video, when: "Cloudflare live input connected + active session" }
+    - { from: live_audio,  to: autodj,     when: "AzuraCast reports no live DJ connected" }
+    - { from: live_video,  to: autodj,     when: "CF input disconnected + no live DJ" }
+    - { from: live_video,  to: live_audio, when: "CF input disconnected but live DJ remains" }
+    - { from: "*",         to: degraded,   when: "Upstream provider unavailable or config missing" }
+
+# ──────────────────────────────────────────────────────────────
+#  API surface
+# ──────────────────────────────────────────────────────────────
+
+api:
+  base_url_env: API_BASE_URL
+
+  public:
+    - { method: GET,   path: /health }
+    - { method: GET,   path: /public/status }
+    - { method: GET,   path: /public/now-playing }
+    - { method: GET,   path: /public/live-session }
+
+  admin:
+    - { method: POST,  path: /auth/login }
+    - { method: POST,  path: /auth/logout }
+    - { method: GET,   path: /admin/me }
+    - { method: GET,   path: /admin/dashboard }
+    - { method: GET,   path: /admin/station/status }
+    - { method: POST,  path: /admin/live/audio/open-web-dj-link }
+    - { method: POST,  path: /admin/live/video/session }
+    - { method: POST,  path: /admin/live/video/end }
+    - { method: GET,   path: /admin/destinations }
+    - { method: POST,  path: /admin/destinations }
+    - { method: PATCH, path: "/admin/destinations/:id" }
+    - { method: POST,  path: "/admin/destinations/:id/test" }
+    - { method: DELETE,path: "/admin/destinations/:id" }
+    - { method: GET,   path: /admin/settings }
+    - { method: PATCH, path: /admin/settings }
+    - { method: GET,   path: /admin/audit }
+
+  webhooks:
+    - { method: POST, path: /webhooks/cloudflare-stream }
+    - { method: POST, path: /webhooks/azuracast }
+
+# ──────────────────────────────────────────────────────────────
+#  Database schema
+# ──────────────────────────────────────────────────────────────
+
+database:
+  engine: SQLite
+  file_env: SQLITE_DB_PATH
+
+  tables:
+    users:
+      columns: [id, email, password_hash, role, created_at, updated_at]
+      notes: "argon2id hashes; role ∈ {admin}"
+
+    station_settings:
+      columns:
+        - id
+        - station_name
+        - azuracast_base_url
+        - azuracast_public_stream_url
+        - azuracast_public_api_url
+        - azuracast_api_key_encrypted
+        - cloudflare_account_id
+        - cloudflare_live_input_id
+        - cloudflare_api_token_encrypted
+        - default_stream_mode
+        - created_at
+        - updated_at
+      notes: "singleton row; encrypted fields use BACKEND_ENCRYPTION_KEY"
+
+    destinations:
+      columns:
+        - id
+        - kind                     # twitch | instagram | custom_rtmp | custom_srt | tiktok_experimental | discord_notify
+        - name
+        - enabled
+        - url
+        - stream_key_encrypted
+        - srt_passphrase_encrypted
+        - metadata_json
+        - sort_order
+        - created_at
+        - updated_at
+
+    live_sessions:
+      columns:
+        - id
+        - mode                     # live_audio | live_video
+        - title
+        - description
+        - status                   # pending | active | ended
+        - started_at
+        - ended_at
+        - initiated_by_user_id
+        - cloudflare_live_input_id
+        - azuracast_streamer_name
+        - notes_json
+
+    webhook_events:
+      columns:
+        - id
+        - source                   # cloudflare | azuracast
+        - event_type
+        - payload_json
+        - received_at
+        - processed_at
+        - status                   # pending | processed | failed
+
+    audit_log:
+      columns: [id, actor_user_id, action, entity_type, entity_id, data_json, created_at]
+
+# ──────────────────────────────────────────────────────────────
+#  Integrations
+# ──────────────────────────────────────────────────────────────
+
+integrations:
+  azuracast:
+    service_name: azuracastService
+    poll_interval_seconds: 10
+    capabilities:
+      - Read public now-playing data
+      - Detect live DJ connected state
+      - Deep-link operator to Web DJ page
+      - Support DJ credentials for BUTT fallback
+    rules:
+      - Poll now-playing endpoint every 10 s (fallback; prefer webhook if available)
+      - Normalize raw status into internal state enum
+      - Never re-implement AzuraCast AutoDJ logic
+
+  cloudflare_stream:
+    service_name: cloudflareStreamService
+    live_inputs_per_station: 1
+    capabilities:
+      - Create / manage one live input
+      - Read live input status
+      - Create / update / delete outputs
+      - Receive live webhooks
+    rules:
+      - One canonical live input in v1.0
+      - Use CF outputs for fanout destinations
+      - Reflect live input state into public and admin status
+
+  butt:
+    role: fallback desktop broadcaster client
+    rules:
+      - Do not embed BUTT in the backend
+      - Provide a setup page with downloadable config instructions
+      - Document exact Icecast-style connection settings
+
+  obs:
+    role: video event broadcaster
+    rules:
+      - Assume one preconfigured OBS profile for live video
+      - Admin UI shows ingest target + current connection status
+      - No custom OBS plugin in v1.0
+
+# ──────────────────────────────────────────────────────────────
+#  Destinations
+# ──────────────────────────────────────────────────────────────
+
+destinations:
+  supported:
+    - { kind: twitch,      output: cloudflare_output, status: supported }
+    - { kind: instagram,   output: cloudflare_output, status: supported }
+    - { kind: custom_rtmp, output: cloudflare_output, status: supported }
+    - { kind: custom_srt,  output: cloudflare_output, status: supported }
+
+  experimental:
+    - kind: tiktok_experimental
+      output: cloudflare_output_or_manual_key
+      status: experimental
+      ui_note: "Requires a credentials workflow; show unsupported/degraded state clearly"
+
+  notification_only:
+    - kind: discord_notify
+      output: webhook_notification
+      status: supported
+      ui_note: "Go-live notification only — not a media output"
+
+  forbidden_assumptions:
+    - TikTok cannot always be auto-provisioned
+    - Discord cannot be used as RTMP output
+
+# ──────────────────────────────────────────────────────────────
+#  Frontend routes & features
+# ──────────────────────────────────────────────────────────────
+
+frontend:
+  public_routes:
+    - { path: /,         component: HomePage }
+    - { path: /listen,   component: ListenPage }
+    - { path: /schedule, component: SchedulePage }
+    - { path: /live,     component: LivePage }
+    - { path: /about,    component: AboutPage }
+
+  admin_routes:
+    - { path: /admin,              component: AdminDashboard,    auth: required }
+    - { path: /admin/station,      component: StationStatus,     auth: required }
+    - { path: /admin/live,         component: LiveControls,      auth: required }
+    - { path: /admin/destinations, component: DestinationsMgmt,  auth: required }
+    - { path: /admin/settings,     component: SettingsPage,      auth: required }
+    - { path: /admin/audit,        component: AuditLogPage,      auth: required }
+
+  public_features:
+    - Persistent audio player (AzuraCast stream URL)
+    - Now Playing card with track + show metadata
+    - Live badge when live DJ or live video is active
+    - Listener count
+    - Recent tracks list
+    - Live event hero when live video is active
+    - Graceful fallback to audio-only mode
+
+  admin_features:
+    - Email/password login
+    - Single-screen station status dashboard
+    - Current mode display (autodj | live_audio | live_video | degraded)
+    - Open Web DJ button (one click)
+    - BUTT setup / download page link
+    - Create live video session
+    - View ingest URL / stream key for OBS
+    - Manage multicast destinations (enable/disable/test)
+    - Audit trail viewer
+
+  ux_requirements:
+    - Large obvious buttons for non-technical operators
+    - No admin action requires terminal or localhost
+    - Explicit labels instead of jargon
+    - Degraded / experimental state shown clearly
+
+# ──────────────────────────────────────────────────────────────
+#  Security
+# ──────────────────────────────────────────────────────────────
+
+security:
+  auth:
+    method: email_password
+    hashing: argon2id
+    session: httpOnly_secure_cookie
+    session_secret_env: SESSION_SECRET
+
+  encryption:
+    method: symmetric_aes_256_gcm
+    key_env: BACKEND_ENCRYPTION_KEY
+    encrypted_fields:
+      - station_settings.azuracast_api_key_encrypted
+      - station_settings.cloudflare_api_token_encrypted
+      - destinations.stream_key_encrypted
+      - destinations.srt_passphrase_encrypted
+
+  cors:
+    allowed_origins:
+      - https://wstprtradio.com
+      - https://admin.wstprtradio.com
+
+  rate_limits:
+    - auth endpoints
+    - webhook endpoints
+    - admin mutation endpoints
+
+# ──────────────────────────────────────────────────────────────
+#  Environment variables
+# ──────────────────────────────────────────────────────────────
+
+env_vars:
+  shared:
+    APP_ENV:      { required: true,  description: "production | development" }
+    APP_BASE_URL: { required: true,  description: "Root URL of the deployment" }
+
+  web:
+    NEXT_PUBLIC_API_BASE_URL:    { required: true,  description: "Fly.io API base URL" }
+    NEXT_PUBLIC_PUBLIC_SITE_URL: { required: true,  description: "Public site URL" }
+
+  api:
+    PORT:                     { required: false, default: "3001" }
+    SESSION_SECRET:           { required: true,  secret: true }
+    BACKEND_ENCRYPTION_KEY:   { required: true,  secret: true,  note: "32-byte hex" }
+    SQLITE_DB_PATH:           { required: true,  description: "Absolute path to SQLite file on Fly volume" }
+    ADMIN_SEED_EMAIL:         { required: true,  description: "Bootstrap admin email" }
+    ADMIN_SEED_PASSWORD:      { required: true,  secret: true,  description: "Bootstrap admin password (change after first login)" }
+    AZURACAST_BASE_URL:       { required: true }
+    AZURACAST_PUBLIC_STREAM_URL: { required: true }
+    AZURACAST_PUBLIC_API_URL: { required: true }
+    AZURACAST_API_KEY:        { required: true,  secret: true }
+    CLOUDFLARE_ACCOUNT_ID:    { required: true }
+    CLOUDFLARE_STREAM_API_TOKEN: { required: true, secret: true }
+    CLOUDFLARE_LIVE_INPUT_ID: { required: true }
+    DISCORD_WEBHOOK_URL:      { required: false, secret: true }
+
+  rule: "Never expose API secrets to the browser / public bundle"
+
+# ──────────────────────────────────────────────────────────────
+#  Deployment
+# ──────────────────────────────────────────────────────────────
+
+deployment:
+  vercel:
+    app: apps/web
+    tasks:
+      - Deploy apps/web
+      - Set NEXT_PUBLIC_API_BASE_URL, NEXT_PUBLIC_PUBLIC_SITE_URL
+      - Attach wstprtradio.com + admin.wstprtradio.com
+
+  fly_io:
+    app: apps/api
+    region: single primary (v1.0)
+    tasks:
+      - fly apps create wstprtradio-api
+      - fly volumes create wstprtradio_data --size 1
+      - fly deploy
+      - Attach api.wstprtradio.com
+      - fly secrets set SESSION_SECRET BACKEND_ENCRYPTION_KEY … (see env_vars.api)
+
+  azuracast:
+    host: dedicated VM (not Fly/Vercel)
+    tasks:
+      - Deploy AzuraCast via Docker Compose
+      - Create station with AutoDJ enabled
+      - Upload playlist media
+      - Enable streamers / DJs
+      - Create Web DJ-capable operator account
+      - Set public stream mount URLs
+      - Expose via radio.wstprtradio.com + azura-admin.wstprtradio.com
+
+  cloudflare_stream:
+    tasks:
+      - Create one live input
+      - Store live input ID in backend station_settings
+      - Enable webhook notifications → POST /webhooks/cloudflare-stream
+      - Wire destination outputs from admin UI
+
+# ──────────────────────────────────────────────────────────────
+#  Implementation order
+# ──────────────────────────────────────────────────────────────
+
+implementation_order:
+  - id: 1
+    name: Bootstrap monorepo
+    deliverables:
+      - pnpm-workspace.yaml
+      - root package.json with dev tooling
+      - tsconfig.base.json
+      - apps/web scaffold (next-app, tailwind, eslint)
+      - apps/api scaffold (fastify, typescript, env validation)
+      - packages/shared (types, schemas, state enum)
+      - packages/ui (base component stubs)
+      - .env.example
+
+  - id: 2
+    name: API foundation
+    deliverables:
+      - Fastify server with plugin architecture
+      - SQLite schema + drizzle or plain migrations
+      - Seed admin user (ADMIN_SEED_EMAIL / ADMIN_SEED_PASSWORD)
+      - Session auth (argon2id + httpOnly cookie)
+      - Symmetric encryption helpers
+      - GET /health endpoint
+
+  - id: 3
+    name: AzuraCast integration
+    deliverables:
+      - azuracastService (polling + normalization)
+      - Station state → internal StationState enum
+      - Web DJ deep-link builder
+      - GET /public/now-playing + GET /public/status wired to AzuraCast
+
+  - id: 4
+    name: Cloudflare Stream integration
+    deliverables:
+      - cloudflareStreamService (live input status reader)
+      - Destination CRUD (POST/PATCH/DELETE /admin/destinations)
+      - Output sync logic (create/update/delete CF outputs)
+      - POST /webhooks/cloudflare-stream receiver
+
+  - id: 5
+    name: Public frontend
+    deliverables:
+      - Homepage with persistent player
+      - /listen page
+      - /schedule page (static / data-driven)
+      - /live page (live video hero)
+      - /about page
+      - Now Playing card, Live badge, listener count, recent tracks
+
+  - id: 6
+    name: Admin frontend
+    deliverables:
+      - /admin/login page
+      - /admin dashboard (station mode, quick actions)
+      - /admin/live (Web DJ button, OBS ingest target)
+      - /admin/destinations (CRUD, enable/disable, test)
+      - /admin/settings
+      - /admin/audit (audit log table)
+
+  - id: 7
+    name: State-driven UX
+    deliverables:
+      - API polling or SSE from /public/status
+      - Public mode switching (audio ↔ live video)
+      - Degraded state banners
+
+  - id: 8
+    name: Deployment configs
+    deliverables:
+      - infra/fly/fly.toml
+      - infra/vercel/vercel.json
+      - infra/azuracast/README.md (deploy checklist)
+      - DNS checklist doc
+
+  - id: 9
+    name: Operator docs
+    deliverables:
+      - docs/musician-guide.md (one-pager for non-technical hosts)
+      - docs/web-dj-guide.md
+      - docs/butt-fallback-guide.md
+      - docs/obs-profile-guide.md
+
+  - id: 10
+    name: Smoke tests
+    deliverables:
+      - Public player works end-to-end
+      - Admin login works
+      - AzuraCast live detection flips state within 10 s
+      - Cloudflare live detection works
+      - Twitch / Instagram output test path succeeds
+
+# ──────────────────────────────────────────────────────────────
+#  Acceptance criteria
+# ──────────────────────────────────────────────────────────────
+
+acceptance_criteria:
+  - Listener opens public site → immediately hears the station
+  - Admin logs in → sees real-time station mode
+  - Admin starts live audio workflow → no terminal or localhost required
+  - AutoDJ resumes automatically after live audio ends
+  - Admin configures Twitch + Instagram destinations from the UI
+  - Public site shows live video hero when Cloudflare input is connected
+  - Discord is never labeled a direct stream output
+  - TikTok experimental state shown and never blocks deployment
+
+# ──────────────────────────────────────────────────────────────
+#  Testing requirements
+# ──────────────────────────────────────────────────────────────
+
+testing:
+  automated:
+    - Unit tests for state normalization logic
+    - Unit tests for encryption helpers
+    - API integration tests (mocked AzuraCast + Cloudflare responses)
+    - Frontend component tests (player, admin state display)
+
+  manual:
+    - AutoDJ plays from public site
+    - Live DJ connection flips state within 10 seconds
+    - Disconnect live DJ → returns to AutoDJ
+    - Start OBS live event → public site shows live video
+    - Twitch destination receives feed
+    - Instagram destination receives feed (with valid credentials)
+    - Discord notification fires on go-live
+    - TikTok destination shows experimental state unless fully configured
