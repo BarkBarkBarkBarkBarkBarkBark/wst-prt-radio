@@ -1,32 +1,60 @@
-import { LiveHero } from '@/components/live/LiveHero';
-import { NowPlayingCard } from '@/components/player/NowPlayingCard';
+'use client';
+
+import { useState } from 'react';
+import { useAudioStore } from '@/lib/audioStore';
+import { useStationStatus } from '@/lib/hooks/useStationStatus';
+import { Header } from '@/components/Header';
+import { Footer } from '@/components/Footer';
+import { VinylRecord } from '@/components/VinylRecord';
+import { AudioControls } from '@/components/AudioControls';
+import { SpectrumAnalyzer } from '@/components/SpectrumAnalyzer';
+import { ChatPanel } from '@/components/ChatPanel';
+import { StationPanel } from '@/components/StationPanel';
+import { BadDogStamp } from '@/components/BadDogStamp';
 
 export default function HomePage() {
-  return (
-    <div className="max-w-6xl mx-auto px-4 py-12 space-y-12">
-      <section className="text-center space-y-4">
-        <h1 className="text-5xl font-extrabold text-white tracking-tight">wstprtradio</h1>
-        <p className="text-xl text-gray-400 max-w-2xl mx-auto">
-          Community radio, always on. Tune in for music, live sets, and good vibes.
-        </p>
-        <div className="flex justify-center gap-4 pt-2">
-          <a
-            href="/listen"
-            className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-6 py-3 rounded-full transition-colors"
-          >
-            Listen Now
-          </a>
-          <a
-            href="/schedule"
-            className="border border-gray-600 hover:border-gray-400 text-gray-300 hover:text-white font-semibold px-6 py-3 rounded-full transition-colors"
-          >
-            Schedule
-          </a>
-        </div>
-      </section>
+  const { isPlaying, isMuted, togglePlay, toggleMute } = useAudioStore();
+  const [chatOpen, setChatOpen] = useState(true);
+  const { data: status } = useStationStatus();
 
-      <LiveHero />
-      <NowPlayingCard />
+  const isLive = status?.mode === 'live_audio' || status?.mode === 'live_video';
+
+  return (
+    <div className="min-h-screen bg-paper text-ink flex flex-col">
+      <Header />
+
+      <main id="player" className="flex-1 px-4 pt-10 pb-16 w-full max-w-7xl mx-auto">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-10 lg:gap-6 items-start">
+
+          {/* ── Left column: station info + spectrum ── */}
+          <div className="space-y-10 order-2 lg:order-1">
+            <StationPanel />
+            <SpectrumAnalyzer />
+          </div>
+
+          {/* ── Center column: vinyl + controls ── */}
+          <div className="flex flex-col items-center gap-7 order-1 lg:order-2">
+            <VinylRecord isPlaying={isPlaying} isLive={isLive} />
+            <AudioControls
+              isPlaying={isPlaying}
+              isMuted={isMuted}
+              chatOpen={chatOpen}
+              onTogglePlay={togglePlay}
+              onToggleMute={toggleMute}
+              onToggleChat={() => setChatOpen((o: boolean) => !o)}
+            />
+          </div>
+
+          {/* ── Right column: chat ── */}
+          <div className="order-3">
+            {chatOpen && <ChatPanel />}
+          </div>
+
+        </div>
+      </main>
+
+      <Footer />
+      <BadDogStamp />
     </div>
   );
 }
