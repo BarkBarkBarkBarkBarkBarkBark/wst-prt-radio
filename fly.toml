@@ -6,8 +6,10 @@ primary_region = "iad"
 
 [env]
   PORT = "3001"
+  APP_ENV = "production"
   SQLITE_DB_PATH = "/data/wstprtradio.db"
   STREAM_PUBLIC_URL = "https://radio.wstprtradio.com/radio.mp3"
+  CORS_ALLOWED_ORIGINS = "https://wst-prt-radio.vercel.app"
 
 [mounts]
   source = "data"

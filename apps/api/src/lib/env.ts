@@ -13,7 +13,7 @@ const EnvSchema = z.object({
   SQLITE_DB_PATH: z.string().min(1),
   ADMIN_SEED_EMAIL: z.string().email(),
   ADMIN_SEED_PASSWORD: z.string().min(8),
-  STREAM_PUBLIC_URL: z.string().url(),
+  STREAM_PUBLIC_URL: OptionalUrlSchema,
   STREAM_METADATA_PROVIDER: z.enum(['static', 'azuracast']).default('static'),
   STATIC_NOW_PLAYING_TITLE: z.string().min(1).default('West Port Radio'),
   STATIC_NOW_PLAYING_ARTIST: z.string().min(1).default('Icecast Stream'),
