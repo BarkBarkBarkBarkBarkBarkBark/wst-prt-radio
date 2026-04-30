@@ -1,0 +1,5 @@
+{
+  "framework": "nextjs",
+  "installCommand": "cd ../.. && pnpm install",
+  "buildCommand": "cd ../.. && pnpm --filter=@wstprtradio/shared build && pnpm --filter=@wstprtradio/web build"
+}

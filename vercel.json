@@ -1,6 +1,0 @@
-{
-  "buildCommand": "pnpm --filter=@wstprtradio/web run build",
-  "outputDirectory": "apps/web/.next",
-  "framework": "nextjs",
-  "installCommand": "pnpm install"
-}
