@@ -7,10 +7,6 @@ primary_region = "iad"
 [env]
   PORT = "3001"
   SQLITE_DB_PATH = "/data/wstprtradio.db"
-  SESSION_SECRET = "change_me_later_but_needs_32_chars_min"
-  BACKEND_ENCRYPTION_KEY = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-  ADMIN_SEED_EMAIL = "admin@wstprtradio.com"
-  ADMIN_SEED_PASSWORD = "changeme123"
   STREAM_PUBLIC_URL = "https://radio.wstprtradio.com/radio.mp3"
 
 [mounts]
