@@ -1,6 +1,10 @@
 import Fastify from 'fastify';
 import fastifyCookie from '@fastify/cookie';
 import fastifySession from '@fastify/session';
+import fastifySwagger from '@fastify/swagger';
+import fastifySwaggerUi from '@fastify/swagger-ui';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { env } from './lib/env.js';
 import { loggerOptions } from './lib/logger.js';
 import { sessionOptions } from './lib/session.js';
@@ -25,10 +29,29 @@ import auditRoute from './routes/admin/audit.js';
 import cloudflareStreamWebhook from './routes/webhooks/cloudflareStream.js';
 import azuracastWebhook from './routes/webhooks/azuracast.js';
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
 export async function buildServer() {
   const fastify = Fastify({
     logger: loggerOptions[env.APP_ENV] as Parameters<typeof Fastify>[0]['logger'],
     trustProxy: true,
+  });
+
+  await fastify.register(fastifySwagger, {
+    mode: 'static',
+    specification: {
+      path: join(__dirname, '..', 'openapi.yaml'),
+      postProcessor: (specification) => specification,
+      baseDir: join(__dirname, '..'),
+    },
+  });
+  await fastify.register(fastifySwaggerUi, {
+    routePrefix: '/docs',
+    uiConfig: {
+      docExpansion: 'list',
+      deepLinking: true,
+    },
+    staticCSP: true,
   });
 
   await fastify.register(corsPlugin);

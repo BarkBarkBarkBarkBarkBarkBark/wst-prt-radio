@@ -47,9 +47,12 @@ infra/
   azuracast/    Deployment checklist, nginx proxy example
 
 docs/
+  api-reference.md        API troubleshooting and endpoint overview
+  linux-machine-setup.md  SSH-oriented setup for a Linux AzuraCast host
   musician-guide.md       One-page guide for non-technical hosts
   web-dj-guide.md         How to go live from the browser
   butt-fallback-guide.md  Using BUTT as a fallback encoder
+  local-network-streaming.md  Local LAN streaming setup from one device to another
   obs-profile-guide.md    OBS setup for video events
   dns-checklist.md        DNS records checklist
 ```
@@ -142,11 +145,51 @@ cp apps/web/.env.local.example apps/web/.env.local
 ### Run locally
 
 ```bash
-# Start the API (port 3001)
-pnpm --filter api dev
+# Start both apps from the repo root
+pnpm dev
+```
 
-# Start the web app (port 3000)
-pnpm --filter web dev
+### Stream from one device to another on your LAN
+
+For the earliest useful end-to-end setup:
+
+1. run AzuraCast on your dev machine or another machine on the same LAN
+2. set `AZURACAST_*` env vars to that LAN host
+3. set `NEXT_PUBLIC_API_BASE_URL` and `NEXT_PUBLIC_STREAM_URL` to your dev machine's LAN IP
+4. start the repo with `pnpm dev`
+5. open `http://YOUR_LAN_IP:3000` on another device
+
+See:
+
+- [docs/local-network-streaming.md](docs/local-network-streaming.md)
+- [docs/linux-machine-setup.md](docs/linux-machine-setup.md)
+- [docs/api-reference.md](docs/api-reference.md)
+- [apps/api/openapi.yaml](apps/api/openapi.yaml)
+
+### One-command local install
+
+```bash
+pnpm local:install
+```
+
+That script will:
+
+1. detect your LAN IP
+2. create local env files if missing
+3. pull Docker images
+4. install workspace dependencies in a bootstrap container
+5. start the web and API services
+
+To regenerate LAN-focused env files:
+
+```bash
+pnpm local:install -- --refresh-env
+```
+
+To stop the local stack:
+
+```bash
+pnpm local:down
 ```
 
 ---
@@ -180,12 +223,17 @@ pnpm --filter web dev
 |---|---|---|
 | `NEXT_PUBLIC_API_BASE_URL` | Yes | URL of the Fly.io API, e.g. `https://api.wstprtradio.com` |
 | `NEXT_PUBLIC_PUBLIC_SITE_URL` | Yes | Public site URL, e.g. `https://wstprtradio.com` |
+| `NEXT_PUBLIC_STREAM_URL` | Recommended for LAN dev | Direct stream URL override, e.g. `http://192.168.1.50:8000/radio.mp3` |
 
 > **Never expose API secrets to the browser or public bundle.**
 
 ---
 
 ## API reference
+
+Human-readable API docs live in [docs/api-reference.md](docs/api-reference.md).
+
+Interactive local docs are served at `/docs` when the API is running.
 
 ### Public (no auth)
 

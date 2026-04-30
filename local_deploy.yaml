@@ -1,0 +1,76 @@
+# Local development orchestration for the monorepo itself.
+#
+# This file intentionally does NOT try to re-package the entire AzuraCast stack.
+# Keep AzuraCast on its official install path and point the repo env vars at the
+# machine running it. That keeps local dev simpler and avoids early-stage drift
+# from upstream AzuraCast operations.
+#
+# Typical flow:
+# 1. docker compose -f local_deploy.yaml run --rm bootstrap
+# 2. docker compose -f local_deploy.yaml up -d api web
+# 3. Run AzuraCast separately on this machine or another LAN machine.
+
+name: wstprtradio-local
+
+services:
+  bootstrap:
+    image: node:20-bookworm
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+    command:
+      - /bin/sh
+      - -lc
+      - |
+        corepack enable
+        corepack prepare pnpm@10.33.2 --activate
+        pnpm install --frozen-lockfile
+        pnpm --filter @wstprtradio/shared build
+    profiles:
+      - bootstrap
+
+  api:
+    image: node:20-bookworm
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    env_file:
+      - apps/api/.env
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+    command:
+      - /bin/sh
+      - -lc
+      - |
+        corepack enable
+        corepack prepare pnpm@10.33.2 --activate
+        mkdir -p apps/api/data
+        pnpm --filter @wstprtradio/api dev
+    ports:
+      - "3001:3001"
+    restart: unless-stopped
+
+  web:
+    image: node:20-bookworm
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+    env_file:
+      - apps/web/.env.local
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+      WATCHPACK_POLLING: "true"
+    command:
+      - /bin/sh
+      - -lc
+      - |
+        corepack enable
+        corepack prepare pnpm@10.33.2 --activate
+        pnpm --filter @wstprtradio/web dev
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    restart: unless-stopped

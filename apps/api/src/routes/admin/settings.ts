@@ -4,6 +4,7 @@ import { nanoid } from 'nanoid';
 import { requireSession } from '../../plugins/auth.js';
 import { getDb } from '../../db/client.js';
 import { encrypt } from '../../lib/crypto.js';
+import { writeAudit } from '../../lib/audit.js';
 
 interface SettingsRow {
   id: string;
@@ -112,10 +113,7 @@ const settingsRoute: FastifyPluginAsync = async (fastify) => {
       db.prepare(`UPDATE station_settings SET ${updates.join(', ')} WHERE id = ?`).run(...values);
     }
 
-    db.prepare(
-      `INSERT INTO audit_log (id, actor_user_id, action, entity_type, entity_id, data_json, created_at)
-       VALUES (?, ?, 'update_settings', 'station_settings', 'singleton', ?, datetime('now'))`,
-    ).run(nanoid(), request.session.userId, JSON.stringify(data));
+    writeAudit(db, request.session.userId!, 'update_settings', 'station_settings', 'singleton', data);
 
     return reply.send({ ok: true });
   });

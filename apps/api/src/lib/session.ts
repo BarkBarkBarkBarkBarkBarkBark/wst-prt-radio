@@ -13,9 +13,8 @@ export const sessionOptions: FastifySessionOptions = {
   saveUninitialized: false,
 };
 
-// @fastify/session v11 uses SessionData for module augmentation
-declare module '@fastify/session' {
-  interface SessionData {
+declare module 'fastify' {
+  interface Session {
     userId?: string;
     userEmail?: string;
     userRole?: string;

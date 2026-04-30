@@ -4,20 +4,7 @@ import { nanoid } from 'nanoid';
 import { requireSession } from '../../plugins/auth.js';
 import { getDb } from '../../db/client.js';
 import { env } from '../../lib/env.js';
-
-function writeAudit(
-  db: ReturnType<typeof getDb>,
-  actorUserId: string,
-  action: string,
-  entityType: string,
-  entityId: string,
-  data?: unknown,
-) {
-  db.prepare(
-    `INSERT INTO audit_log (id, actor_user_id, action, entity_type, entity_id, data_json, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`,
-  ).run(nanoid(), actorUserId, action, entityType, entityId, data ? JSON.stringify(data) : null);
-}
+import { writeAudit } from '../../lib/audit.js';
 
 const StartVideoSessionSchema = z.object({
   title: z.string().min(1).max(200),

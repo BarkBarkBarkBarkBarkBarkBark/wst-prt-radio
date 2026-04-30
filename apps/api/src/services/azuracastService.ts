@@ -45,11 +45,11 @@ async function fetchNowPlaying(): Promise<void> {
     latestNowPlaying = {
       title: data.now_playing?.song?.title ?? 'Unknown',
       artist: data.now_playing?.song?.artist ?? 'Unknown',
-      album: data.now_playing?.song?.album || undefined,
-      artUrl: data.now_playing?.song?.art || undefined,
       listenersCount: data.listeners?.current ?? 0,
       isLive: liveDjConnected,
       streamUrl: env.AZURACAST_PUBLIC_STREAM_URL,
+      ...(data.now_playing?.song?.album ? { album: data.now_playing.song.album } : {}),
+      ...(data.now_playing?.song?.art ? { artUrl: data.now_playing.song.art } : {}),
     };
   } catch (err) {
     console.error('[azuracast] Poll error:', err);

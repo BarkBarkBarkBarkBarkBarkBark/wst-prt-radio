@@ -4,20 +4,8 @@ import { z } from 'zod';
 import { requireSession } from '../../plugins/auth.js';
 import { getDb } from '../../db/client.js';
 import { encrypt } from '../../lib/crypto.js';
+import { writeAudit } from '../../lib/audit.js';
 import { createOutput } from '../../services/cloudflareStreamService.js';
-
-function writeAudit(
-  db: ReturnType<typeof getDb>,
-  actorUserId: string,
-  action: string,
-  entityId: string,
-  data?: unknown,
-) {
-  db.prepare(
-    `INSERT INTO audit_log (id, actor_user_id, action, entity_type, entity_id, data_json, created_at)
-     VALUES (?, ?, ?, 'destination', ?, ?, datetime('now'))`,
-  ).run(nanoid(), actorUserId, action, entityId, data ? JSON.stringify(data) : null);
-}
 
 interface DestinationRow {
   id: string;
@@ -91,7 +79,7 @@ const destinationsRoute: FastifyPluginAsync = async (fastify) => {
       now,
     );
 
-    writeAudit(db, request.session.userId!, 'create_destination', id, { kind, name });
+    writeAudit(db, request.session.userId!, 'create_destination', 'destination', id, { kind, name });
     return reply.status(201).send({ id, kind, name, enabled, url, sortOrder, createdAt: now, updatedAt: now });
   });
 
@@ -123,7 +111,7 @@ const destinationsRoute: FastifyPluginAsync = async (fastify) => {
     values.push(id);
 
     db.prepare(`UPDATE destinations SET ${updates.join(', ')} WHERE id = ?`).run(...values);
-    writeAudit(db, request.session.userId!, 'update_destination', id, parsed.data);
+    writeAudit(db, request.session.userId!, 'update_destination', 'destination', id, parsed.data);
 
     return reply.send({ ok: true });
   });
@@ -135,7 +123,7 @@ const destinationsRoute: FastifyPluginAsync = async (fastify) => {
     if (!existing) return reply.status(404).send({ error: 'Not Found' });
 
     db.prepare('DELETE FROM destinations WHERE id = ?').run(id);
-    writeAudit(db, request.session.userId!, 'delete_destination', id);
+    writeAudit(db, request.session.userId!, 'delete_destination', 'destination', id);
     return reply.send({ ok: true });
   });
 
