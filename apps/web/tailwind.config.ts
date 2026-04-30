@@ -10,6 +10,14 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        // Warm vinyl / paper aesthetic palette
+        paper: '#F4EFE4',
+        'paper-dark': '#EDE8D9',
+        ink: '#151515',
+        muted: '#777064',
+        'accent-red': '#B73524',
+        'record-black': '#080808',
+        // Legacy brand tokens (admin UI)
         brand: {
           50: '#f0f4ff',
           100: '#e0e9ff',
@@ -24,6 +32,14 @@ const config: Config = {
       },
       animation: {
         'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+        'bar-pulse': 'barPulse 0.8s ease-in-out infinite alternate',
+        'live-pulse': 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+      },
+      keyframes: {
+        barPulse: {
+          '0%': { transform: 'scaleY(0.25)' },
+          '100%': { transform: 'scaleY(1)' },
+        },
       },
     },
   },
