@@ -33,7 +33,7 @@ usage() {
 Usage: $(basename "$0") [options]
 
 Options:
-  --role <all|azuracast|monorepo>   what to install (default: all)
+  --role <all|azuracast|monorepo>   what to install (default: all; azuracast is vestigial)
   --refresh-env                     rewrite apps/api/.env and apps/web/.env.local
   --install-tailscale               install tailscale on the Linux machine
   --skip-azuracast-install          do not run the AzuraCast installer
@@ -153,9 +153,14 @@ BACKEND_ENCRYPTION_KEY=$(random_hex 32)
 SQLITE_DB_PATH=./data/wstprtradio.db
 ADMIN_SEED_EMAIL=$ADMIN_EMAIL
 ADMIN_SEED_PASSWORD=$ADMIN_PASSWORD
-AZURACAST_BASE_URL=http://$lan_ip:8080
-AZURACAST_PUBLIC_STREAM_URL=http://$lan_ip:8000/radio.mp3
-AZURACAST_PUBLIC_API_URL=http://host.docker.internal:8080/api
+STREAM_PUBLIC_URL=http://$lan_ip:8000/radio.mp3
+STREAM_METADATA_PROVIDER=static
+STATIC_NOW_PLAYING_TITLE=West Port Radio
+STATIC_NOW_PLAYING_ARTIST=Icecast Stream
+STATIC_NOW_PLAYING_ALBUM=
+AZURACAST_BASE_URL=
+AZURACAST_PUBLIC_STREAM_URL=
+AZURACAST_PUBLIC_API_URL=
 AZURACAST_API_KEY=
 AZURACAST_STATION_ID=1
 CLOUDFLARE_ACCOUNT_ID=
@@ -235,19 +240,19 @@ print_summary() {
 Linux machine preparation complete.
 
 Services in this architecture:
-  - AzuraCast on Linux:       http://$lan_ip:8080
   - Public stream on Linux:   http://$lan_ip:8000/radio.mp3
   - Fastify API via Docker:   http://$lan_ip:3001
   - API docs:                 http://$lan_ip:3001/docs
   - Next.js web via Docker:   http://$lan_ip:3000
 
+Optional legacy service:
+  - AzuraCast on Linux:       http://$lan_ip:8080
+
 What you still need to do manually:
-  1. open AzuraCast in the browser
-  2. create the station
-  3. enable Web DJ
-  4. create an AzuraCast API key
-  5. paste that key into apps/api/.env
-  6. restart the api container: docker compose -f local_deploy.yaml restart api
+  1. bring up Icecast or another compatible stream source
+  2. confirm http://$lan_ip:8000/radio.mp3 plays directly
+  3. use BUTT, OBS, Mixxx, or Liquidsoap as the source encoder
+  4. if you insist on reviving AzuraCast, fill in the legacy AZURACAST_* vars manually
 
 Optional:
   - finish tailscale setup with: sudo tailscale up
@@ -255,7 +260,7 @@ Optional:
 Docs:
   - docs/linux-machine-setup.md
   - docs/local-network-streaming.md
-  - docs/web-dj-guide.md
+  - docs/icecast-fallback-guide.md
   - docs/butt-fallback-guide.md
 EOF
 }

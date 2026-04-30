@@ -1,7 +1,12 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { requireSession } from '../../plugins/auth.js';
 import { computeCurrentState } from '../../services/stationStateMachine.js';
-import { getLatestNowPlaying, isLiveDjConnected } from '../../services/azuracastService.js';
+import {
+  getLatestNowPlaying,
+  getStreamMetadataProvider,
+  isLegacyAzuraCastConfigured,
+  isLiveDjConnected,
+} from '../../services/azuracastService.js';
 import { getLiveInputStatus } from '../../services/cloudflareStreamService.js';
 
 const stationRoute: FastifyPluginAsync = async (fastify) => {
@@ -14,6 +19,9 @@ const stationRoute: FastifyPluginAsync = async (fastify) => {
     return reply.send({
       mode,
       nowPlaying: getLatestNowPlaying(),
+      sourceProvider: getStreamMetadataProvider(),
+      sourceLive: isLiveDjConnected(),
+      legacyAzuracastConfigured: isLegacyAzuraCastConfigured(),
       azuracastLive: isLiveDjConnected(),
       cloudflareConnected: cfStatus === 'connected',
       cloudflareStatus: cfStatus,

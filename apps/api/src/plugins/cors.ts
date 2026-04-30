@@ -3,6 +3,12 @@ import fp from 'fastify-plugin';
 import fastifyCors from '@fastify/cors';
 import { env } from '../lib/env.js';
 
+function getConfiguredOrigins(): string[] {
+  return env.CORS_ALLOWED_ORIGINS.split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+}
+
 function isAllowedDevelopmentOrigin(origin: string): boolean {
   try {
     const { protocol, hostname } = new URL(origin);
@@ -28,6 +34,8 @@ function isAllowedDevelopmentOrigin(origin: string): boolean {
 }
 
 const corsPlugin: FastifyPluginAsync = async (fastify) => {
+  const configuredOrigins = getConfiguredOrigins();
+
   await fastify.register(fastifyCors, {
     origin: (origin, callback) => {
       if (!origin) {
@@ -40,11 +48,14 @@ const corsPlugin: FastifyPluginAsync = async (fastify) => {
         return;
       }
 
-      const allowedOrigins = [
-        'https://wstprtradio.com',
-        'https://admin.wstprtradio.com',
-        'https://www.wstprtradio.com',
-      ];
+      const allowedOrigins = configuredOrigins.length
+        ? configuredOrigins
+        : [
+            'https://wstprtradio.com',
+            'https://admin.wstprtradio.com',
+            'https://www.wstprtradio.com',
+          ];
+
       callback(null, allowedOrigins.includes(origin));
     },
     credentials: true,

@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "Deploying wstprtradio-api to Fly.io..."
+APP_NAME="${FLY_APP_NAME:-wstprtradio-api}"
+
+echo "Deploying ${APP_NAME} to Fly.io..."
 
 # Ensure fly CLI is installed
 if ! command -v fly &>/dev/null; then
@@ -11,7 +13,7 @@ fi
 
 cd "$(git rev-parse --show-toplevel)"
 
-fly deploy --config infra/fly/fly.toml --remote-only
+fly deploy --config infra/fly/fly.toml --app "$APP_NAME" --remote-only
 
 echo "Deploy complete!"
-fly status --app wstprtradio-api
+fly status --app "$APP_NAME"

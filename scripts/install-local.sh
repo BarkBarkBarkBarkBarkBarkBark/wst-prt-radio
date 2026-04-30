@@ -3,14 +3,17 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COMPOSE_FILE="$ROOT_DIR/local_deploy.yaml"
+STACK_ENV_FILE="$ROOT_DIR/local_deploy.env"
 API_ENV_FILE="$ROOT_DIR/apps/api/.env"
 WEB_ENV_FILE="$ROOT_DIR/apps/web/.env.local"
 API_ENV_EXAMPLE="$ROOT_DIR/apps/api/.env.example"
 WEB_ENV_EXAMPLE="$ROOT_DIR/apps/web/.env.local.example"
+STACK_ENV_EXAMPLE="$ROOT_DIR/local_deploy.env.example"
 
 REFRESH_ENV=0
 START_SERVICES=1
-AZURACAST_HOST=""
+STREAM_HOST=""
+AUTO_OPEN=1
 
 log() {
   printf '\033[1;34m==>\033[0m %s\n' "$1"
@@ -31,18 +34,23 @@ Usage: $(basename "$0") [options]
 
 Options:
   --refresh-env             overwrite apps/api/.env and apps/web/.env.local
-  --azuracast-host <host>   host or LAN IP where AzuraCast is reachable
+  --refresh-stack-env       overwrite local_deploy.env
+  --stream-host <host>      host or LAN IP where the Icecast-compatible stream is reachable
+  --azuracast-host <host>   legacy alias for --stream-host
   --no-start                prepare envs and images, but do not start services
+  --no-open                 do not open local UIs automatically after startup
   -h, --help                show this help
 
 This script:
   1. checks Docker and Compose
-  2. creates local env files when missing
-  3. pulls required images
+  2. creates local env files and Icecast credentials when missing
+  3. pulls/builds required images
   4. installs workspace deps in the bootstrap container
-  5. starts the API and web services
+  5. starts Icecast, the jukebox, the API, and the web UI
 EOF
 }
+
+REFRESH_STACK_ENV=0
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || die "missing required command: $1"
@@ -53,8 +61,8 @@ docker_compose() {
 }
 
 detect_lan_ip() {
-  if [[ -n "${AZURACAST_HOST}" ]]; then
-    printf '%s\n' "$AZURACAST_HOST"
+  if [[ -n "${STREAM_HOST}" ]]; then
+    printf '%s\n' "$STREAM_HOST"
     return
   fi
 
@@ -105,6 +113,27 @@ random_text_secret() {
   random_hex 24
 }
 
+write_stack_env() {
+  local lan_ip="$1"
+  cat > "$STACK_ENV_FILE" <<EOF
+ICECAST_SOURCE_PASSWORD=$(random_text_secret)
+ICECAST_ADMIN_PASSWORD=$(random_text_secret)
+ICECAST_RELAY_PASSWORD=$(random_text_secret)
+ICECAST_HOSTNAME=$lan_ip
+ICECAST_PORT=8000
+ICECAST_ADMIN_EMAIL=local@wstprtradio.test
+ICECAST_LOCATION=West Port Radio Local Dev
+JUKEBOX_ICECAST_HOST=icecast
+JUKEBOX_ICECAST_PORT=8000
+JUKEBOX_MOUNT=/radio.mp3
+JUKEBOX_NAME=West Port Radio Jukebox
+JUKEBOX_DESCRIPTION=West Port Radio local MP3 jukebox
+JUKEBOX_GENRE=Eclectic
+JUKEBOX_MEDIA_DIR=/music
+JUKEBOX_PLAYLIST_MODE=randomize
+EOF
+}
+
 write_api_env() {
   local lan_ip="$1"
   cat > "$API_ENV_FILE" <<EOF
@@ -115,9 +144,14 @@ BACKEND_ENCRYPTION_KEY=$(random_hex 32)
 SQLITE_DB_PATH=./data/wstprtradio.db
 ADMIN_SEED_EMAIL=admin@example.com
 ADMIN_SEED_PASSWORD=change_me_on_first_login
-AZURACAST_BASE_URL=http://$lan_ip:8080
-AZURACAST_PUBLIC_STREAM_URL=http://$lan_ip:8000/radio.mp3
-AZURACAST_PUBLIC_API_URL=http://$lan_ip:8080/api
+STREAM_PUBLIC_URL=http://$lan_ip:8000/radio.mp3
+STREAM_METADATA_PROVIDER=static
+STATIC_NOW_PLAYING_TITLE=West Port Radio
+STATIC_NOW_PLAYING_ARTIST=Icecast Stream
+STATIC_NOW_PLAYING_ALBUM=
+AZURACAST_BASE_URL=
+AZURACAST_PUBLIC_STREAM_URL=
+AZURACAST_PUBLIC_API_URL=
 AZURACAST_API_KEY=
 AZURACAST_STATION_ID=1
 CLOUDFLARE_ACCOUNT_ID=
@@ -141,6 +175,7 @@ ensure_env_files() {
 
   [[ -f "$API_ENV_EXAMPLE" ]] || die "missing API env example at $API_ENV_EXAMPLE"
   [[ -f "$WEB_ENV_EXAMPLE" ]] || die "missing web env example at $WEB_ENV_EXAMPLE"
+  [[ -f "$STACK_ENV_EXAMPLE" ]] || die "missing stack env example at $STACK_ENV_EXAMPLE"
 
   if [[ "$REFRESH_ENV" -eq 1 || ! -f "$API_ENV_FILE" ]]; then
     log "writing apps/api/.env"
@@ -155,25 +190,88 @@ ensure_env_files() {
   else
     warn "preserving existing apps/web/.env.local"
   fi
+
+  if [[ "$REFRESH_STACK_ENV" -eq 1 || ! -f "$STACK_ENV_FILE" ]]; then
+    log "writing local_deploy.env"
+    write_stack_env "$lan_ip"
+  else
+    warn "preserving existing local_deploy.env"
+  fi
+}
+
+get_stack_value() {
+  local key="$1"
+  local value
+  value=$(grep -E "^${key}=" "$STACK_ENV_FILE" | tail -n 1 | cut -d '=' -f 2- || true)
+  printf '%s\n' "$value"
+}
+
+wait_for_http() {
+  local url="$1"
+  local label="$2"
+  local attempts="${3:-20}"
+  local delay="${4:-2}"
+  local i
+
+  for ((i = 1; i <= attempts; i++)); do
+    if curl -fsS --max-time 3 "$url" >/dev/null 2>&1; then
+      log "$label is ready at $url"
+      return 0
+    fi
+    sleep "$delay"
+  done
+
+  warn "$label did not become ready at $url"
+  return 1
+}
+
+open_local_ui() {
+  [[ "$AUTO_OPEN" -eq 1 ]] || return 0
+  [[ "$(uname -s)" == "Darwin" ]] || return 0
+  command -v open >/dev/null 2>&1 || return 0
+
+  open "http://localhost:3000" >/dev/null 2>&1 || true
+  open "http://localhost:3001/docs" >/dev/null 2>&1 || true
+  open "http://localhost:8000" >/dev/null 2>&1 || true
 }
 
 print_summary() {
   local lan_ip="$1"
+  local source_password="$2"
+  local admin_password="$3"
   cat <<EOF
 
 Local stack ready.
 
 Services started by this script:
+  - icecast:    http://$lan_ip:8000
+  - jukebox:    local MP3 library feeder -> /radio.mp3
   - web:        http://$lan_ip:3000
   - api:        http://$lan_ip:3001
   - api docs:   http://$lan_ip:3001/docs
 
-Streaming service still required:
-  - AzuraCast:  http://$lan_ip:8080 (admin) and http://$lan_ip:8000/radio.mp3 (stream)
+Stream endpoints:
+  - listener URL:  http://$lan_ip:8000/radio.mp3
+  - admin UI:      http://$lan_ip:8000/admin/
+  - media folder:  $ROOT_DIR/media/library
 
-To actually send audio from one device to another, you still need one source client:
-  - AzuraCast Web DJ
+To actually send audio from one device to another, use one source client:
   - BUTT
+  - OBS / Mixxx / Liquidsoap
+
+Jukebox behavior:
+  - the `jukebox` container watches `media/library`
+  - added MP3 files are picked up automatically
+  - stop the `jukebox` service if you want a live encoder to own `/radio.mp3`
+
+Icecast source settings:
+  - host:          $lan_ip
+  - port:          8000
+  - mount:         /radio.mp3
+  - source user:   source
+  - source pass:   $source_password
+  - admin user:    admin
+  - admin pass:    $admin_password
 
 Useful commands:
   - pnpm local:logs
@@ -181,7 +279,7 @@ Useful commands:
 
 Docs:
   - docs/local-network-streaming.md
-  - docs/web-dj-guide.md
+  - docs/icecast-fallback-guide.md
   - docs/butt-fallback-guide.md
 EOF
 }
@@ -192,13 +290,26 @@ while [[ $# -gt 0 ]]; do
       REFRESH_ENV=1
       shift
       ;;
+    --refresh-stack-env)
+      REFRESH_STACK_ENV=1
+      shift
+      ;;
+    --stream-host)
+      [[ $# -ge 2 ]] || die "--stream-host requires a value"
+      STREAM_HOST="$2"
+      shift 2
+      ;;
     --azuracast-host)
       [[ $# -ge 2 ]] || die "--azuracast-host requires a value"
-      AZURACAST_HOST="$2"
+      STREAM_HOST="$2"
       shift 2
       ;;
     --no-start)
       START_SERVICES=0
+      shift
+      ;;
+    --no-open)
+      AUTO_OPEN=0
       shift
       ;;
     -h|--help)
@@ -219,23 +330,28 @@ LAN_IP="$(detect_lan_ip)"
 
 log "using LAN host $LAN_IP"
 mkdir -p "$ROOT_DIR/apps/api/data"
+mkdir -p "$ROOT_DIR/media/library"
 ensure_env_files "$LAN_IP"
 
 log "pulling base images"
-docker_compose pull
+docker_compose pull bootstrap api web
+
+log "building local Icecast and jukebox images"
+docker_compose build icecast jukebox
 
 log "installing workspace dependencies in bootstrap container"
 docker_compose run --rm bootstrap
 
 if [[ "$START_SERVICES" -eq 1 ]]; then
-  log "starting api and web"
-  docker_compose up -d api web
-  print_summary "$LAN_IP"
+  log "starting icecast, jukebox, api, and web"
+  docker_compose up -d icecast jukebox api web
 
-  if ! curl -fsSI --max-time 3 "http://$LAN_IP:8000/radio.mp3" >/dev/null 2>&1; then
-    warn "AzuraCast stream is not reachable yet at http://$LAN_IP:8000/radio.mp3"
-    warn "start AzuraCast separately, then use Web DJ or BUTT as your source client"
-  fi
+  wait_for_http "http://localhost:8000/" 'Icecast' || true
+  wait_for_http "http://localhost:3001/health" 'API' || true
+  wait_for_http "http://localhost:3000/" 'Web UI' || true
+
+  print_summary "$LAN_IP" "$(get_stack_value ICECAST_SOURCE_PASSWORD)" "$(get_stack_value ICECAST_ADMIN_PASSWORD)"
+  open_local_ui
 else
   log "preparation complete; services were not started"
 fi

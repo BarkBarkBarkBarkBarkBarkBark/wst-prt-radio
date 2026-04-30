@@ -14,6 +14,7 @@ import authPlugin from './plugins/auth.js';
 
 // Routes
 import healthRoute from './routes/health.js';
+import liveRoomRoute from './routes/public/liveRoom.js';
 import statusRoute from './routes/public/status.js';
 import nowPlayingRoute from './routes/public/nowPlaying.js';
 import liveSessionRoute from './routes/public/liveSession.js';
@@ -62,6 +63,7 @@ export async function buildServer() {
 
   // Public routes
   await fastify.register(healthRoute);
+  await fastify.register(liveRoomRoute);
   await fastify.register(statusRoute);
   await fastify.register(nowPlayingRoute);
   await fastify.register(liveSessionRoute);

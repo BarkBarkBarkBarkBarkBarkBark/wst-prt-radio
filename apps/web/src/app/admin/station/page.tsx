@@ -8,7 +8,9 @@ import type { StationMode, NowPlaying } from '@wstprtradio/shared';
 interface StationStatusData {
   mode: StationMode;
   nowPlaying: NowPlaying | null;
-  azuracastLive: boolean;
+  sourceProvider: 'static' | 'azuracast';
+  sourceLive: boolean;
+  legacyAzuracastConfigured: boolean;
   cloudflareConnected: boolean;
   cloudflareStatus: string;
 }
@@ -31,15 +33,29 @@ export default function AdminStationPage() {
           <StationModeCard mode={status.mode} nowPlaying={status.nowPlaying} />
           <div className="grid grid-cols-2 gap-4">
             <div className="bg-gray-900 rounded-xl border border-gray-800 p-4">
-              <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">AzuraCast DJ</p>
-              <span className={`text-sm font-semibold ${status.azuracastLive ? 'text-green-400' : 'text-gray-400'}`}>
-                {status.azuracastLive ? '● Live' : '○ Offline'}
+              <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Metadata Source</p>
+              <span className={`text-sm font-semibold ${status.sourceProvider === 'azuracast' ? 'text-amber-400' : 'text-gray-300'}`}>
+                {status.sourceProvider === 'azuracast' ? 'Legacy AzuraCast' : 'Static / Generic Stream'}
               </span>
+              <p className="text-xs text-gray-500 mt-2">
+                {status.sourceProvider === 'azuracast'
+                  ? status.sourceLive
+                    ? 'Legacy live-dj detection is active.'
+                    : 'Legacy AzuraCast is configured but currently idle.'
+                  : 'Now playing is driven by fallback metadata and direct stream playback.'}
+              </p>
             </div>
             <div className="bg-gray-900 rounded-xl border border-gray-800 p-4">
-              <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Cloudflare Stream</p>
+              <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Legacy Services</p>
+              <p className="text-sm font-semibold text-gray-300">
+                AzuraCast {status.legacyAzuracastConfigured ? 'configured' : 'vestigial'}
+              </p>
+              <p className="text-xs text-gray-500 mt-2">Cloudflare Stream: <span className={status.cloudflareConnected ? 'text-green-400' : 'text-gray-400'}>{status.cloudflareStatus}</span></p>
+            </div>
+            <div className="bg-gray-900 rounded-xl border border-gray-800 p-4 col-span-2">
+              <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Status Notes</p>
               <span className={`text-sm font-semibold ${status.cloudflareConnected ? 'text-green-400' : 'text-gray-400'}`}>
-                {status.cloudflareStatus}
+                Generic Icecast-compatible streaming is now the primary path. AzuraCast remains optional and vestigial.
               </span>
             </div>
           </div>

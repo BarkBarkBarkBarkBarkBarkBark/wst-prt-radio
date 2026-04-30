@@ -1,14 +1,9 @@
-# Local development orchestration for the monorepo itself.
-#
-# This file intentionally does NOT try to re-package the entire AzuraCast stack.
-# Keep AzuraCast on its official install path and point the repo env vars at the
-# machine running it. That keeps local dev simpler and avoids early-stage drift
-# from upstream AzuraCast operations.
+# Local development orchestration for the monorepo plus a lightweight Icecast
+# backend so the full local stack can run on Apple Silicon and similar hosts.
 #
 # Typical flow:
 # 1. docker compose -f local_deploy.yaml run --rm bootstrap
-# 2. docker compose -f local_deploy.yaml up -d api web
-# 3. Run AzuraCast separately on this machine or another LAN machine.
+# 2. docker compose -f local_deploy.yaml up -d icecast jukebox api web
 
 name: wstprtradio-local
 
@@ -18,6 +13,12 @@ services:
     working_dir: /workspace
     volumes:
       - .:/workspace
+      - root_node_modules:/workspace/node_modules
+      - api_node_modules:/workspace/apps/api/node_modules
+      - web_node_modules:/workspace/apps/web/node_modules
+      - shared_node_modules:/workspace/packages/shared/node_modules
+      - ui_node_modules:/workspace/packages/ui/node_modules
+      - pnpm_store:/root/.local/share/pnpm/store
     command:
       - /bin/sh
       - -lc
@@ -29,11 +30,43 @@ services:
     profiles:
       - bootstrap
 
+  icecast:
+    build:
+      context: ./infra/local/icecast
+    env_file:
+      - local_deploy.env
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  jukebox:
+    build:
+      context: ./infra/local/jukebox
+    env_file:
+      - local_deploy.env
+    volumes:
+      - ./media/library:/music
+    depends_on:
+      icecast:
+        condition: service_healthy
+    restart: unless-stopped
+
   api:
     image: node:20-bookworm
     working_dir: /workspace
     volumes:
       - .:/workspace
+      - root_node_modules:/workspace/node_modules
+      - api_node_modules:/workspace/apps/api/node_modules
+      - web_node_modules:/workspace/apps/web/node_modules
+      - shared_node_modules:/workspace/packages/shared/node_modules
+      - ui_node_modules:/workspace/packages/ui/node_modules
+      - pnpm_store:/root/.local/share/pnpm/store
     extra_hosts:
       - "host.docker.internal:host-gateway"
     env_file:
@@ -50,6 +83,11 @@ services:
         pnpm --filter @wstprtradio/api dev
     ports:
       - "3001:3001"
+    depends_on:
+      icecast:
+        condition: service_healthy
+      jukebox:
+        condition: service_started
     restart: unless-stopped
 
   web:
@@ -57,6 +95,12 @@ services:
     working_dir: /workspace
     volumes:
       - .:/workspace
+      - root_node_modules:/workspace/node_modules
+      - api_node_modules:/workspace/apps/api/node_modules
+      - web_node_modules:/workspace/apps/web/node_modules
+      - shared_node_modules:/workspace/packages/shared/node_modules
+      - ui_node_modules:/workspace/packages/ui/node_modules
+      - pnpm_store:/root/.local/share/pnpm/store
     env_file:
       - apps/web/.env.local
     environment:
@@ -72,5 +116,14 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      - api
+      api:
+        condition: service_started
     restart: unless-stopped
+
+volumes:
+  root_node_modules:
+  api_node_modules:
+  web_node_modules:
+  shared_node_modules:
+  ui_node_modules:
+  pnpm_store:

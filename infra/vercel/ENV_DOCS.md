@@ -6,6 +6,7 @@ Set these in the Vercel project settings for the `wstprtradio-web` project.
 |---|---|---|
 | `NEXT_PUBLIC_API_BASE_URL` | ✅ | Full URL to the API (e.g. `https://api.wstprtradio.com`) |
 | `NEXT_PUBLIC_PUBLIC_SITE_URL` | ✅ | Public site URL (e.g. `https://wstprtradio.com`) |
+| `NEXT_PUBLIC_STREAM_URL` | Recommended | Public listener stream URL if you keep Icecast/audio playback enabled |
 
 ## Setting via CLI
 

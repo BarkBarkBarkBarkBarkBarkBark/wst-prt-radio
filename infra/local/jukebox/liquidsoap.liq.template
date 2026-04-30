@@ -1,0 +1,15 @@
+music = playlist(mode="${JUKEBOX_PLAYLIST_MODE}", reload_mode="watch", "${JUKEBOX_MEDIA_DIR}/*.mp3")
+radio = mksafe(music)
+
+output.icecast(
+  %mp3(bitrate=128, stereo=true, samplerate=44100),
+  host="${JUKEBOX_ICECAST_HOST}",
+  port=${JUKEBOX_ICECAST_PORT},
+  password="${ICECAST_SOURCE_PASSWORD}",
+  mount="${JUKEBOX_MOUNT}",
+  name="${JUKEBOX_NAME}",
+  description="${JUKEBOX_DESCRIPTION}",
+  genre="${JUKEBOX_GENRE}",
+  public=false,
+  radio
+)

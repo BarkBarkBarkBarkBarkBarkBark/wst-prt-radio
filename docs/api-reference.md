@@ -17,7 +17,7 @@ That UI is backed by [apps/api/openapi.yaml](../apps/api/openapi.yaml), which is
 - destination management for Cloudflare Stream fanout
 - station settings storage
 - audit logging
-- webhook intake from AzuraCast and Cloudflare Stream
+- webhook intake from vestigial AzuraCast and Cloudflare Stream integrations
 
 ## Public endpoints
 
@@ -25,7 +25,7 @@ That UI is backed by [apps/api/openapi.yaml](../apps/api/openapi.yaml), which is
 |---|---|---|
 | `GET` | `/health` | basic health and timestamp |
 | `GET` | `/public/status` | derived station mode + now playing + live session |
-| `GET` | `/public/now-playing` | latest AzuraCast now playing payload |
+| `GET` | `/public/now-playing` | current now-playing payload; static fallback when AzuraCast is absent |
 | `GET` | `/public/live-session` | current active live video session or `null` |
 
 ## Auth endpoints
@@ -43,8 +43,8 @@ These require the session cookie set by `POST /auth/login`.
 |---|---|---|
 | `GET` | `/admin/me` | current authenticated user |
 | `GET` | `/admin/dashboard` | mode + now playing + recent audit summary |
-| `GET` | `/admin/station/status` | detailed status from AzuraCast + Cloudflare |
-| `POST` | `/admin/live/audio/open-web-dj-link` | returns AzuraCast Web DJ URL |
+| `GET` | `/admin/station/status` | current source-provider status + Cloudflare status |
+| `POST` | `/admin/live/audio/open-web-dj-link` | returns legacy AzuraCast Web DJ URL when configured |
 | `POST` | `/admin/live/video/session` | creates a pending live video session |
 | `POST` | `/admin/live/video/end` | closes the latest pending or active session |
 | `GET` | `/admin/destinations` | list destinations |
@@ -69,6 +69,10 @@ These require the session cookie set by `POST /auth/login`.
 
 The API uses server-side sessions via `@fastify/session`. In local development the cookie is non-secure; in production it becomes secure automatically.
 
+### Primary stream model
+
+The primary runtime assumption is now a generic Icecast-compatible stream URL plus static fallback metadata. AzuraCast is optional and vestigial.
+
 ### Audit logging
 
 Audit writes are centralized in [apps/api/src/lib/audit.ts](../apps/api/src/lib/audit.ts). Early-stage route work should use that helper instead of writing directly to `audit_log`.
@@ -91,12 +95,12 @@ That keeps `/docs` useful without forcing a large schema framework too early.
 - confirm port `3001` is exposed and not already taken
 - confirm `@fastify/swagger` and `@fastify/swagger-ui` are installed in the API workspace
 
-### `/public/now-playing` returns `503`
+### `/public/now-playing` looks generic or static
 
-- AzuraCast polling has not succeeded yet
-- check `AZURACAST_PUBLIC_API_URL`
-- confirm the station ID in `AZURACAST_STATION_ID`
-- confirm AzuraCast is reachable from the API host
+- that is expected in the default setup
+- check `STREAM_PUBLIC_URL`
+- customize `STATIC_NOW_PLAYING_TITLE` and `STATIC_NOW_PLAYING_ARTIST` if needed
+- only configure `AZURACAST_*` if you intentionally want the legacy integration back
 
 ### Admin routes return `401`
 

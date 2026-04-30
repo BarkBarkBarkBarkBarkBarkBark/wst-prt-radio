@@ -10,7 +10,7 @@ Keep the monorepo identical everywhere, but give each location a job:
 |---|---|
 | local dev machine | active development, UI work, LAN demos |
 | Fly.io machine | control-plane API |
-| AWS or dedicated VM | radio backend / AzuraCast / broadcast ingress |
+| AWS or dedicated VM | radio backend / Icecast / broadcast ingress |
 
 For local development, it is perfectly fine to run all pieces from one machine first.
 
@@ -24,13 +24,17 @@ From the repo root, run:
 pnpm local:install
 ```
 
-That will prepare env files, pull the container images used by local development, install workspace dependencies in Docker, and start the API and web services.
+That will prepare env files, generate Icecast credentials, pull/build the container images used by local development, install workspace dependencies in Docker, and start Icecast, the jukebox, the API, and the web services.
 
 If you want the env files regenerated for a different LAN IP, run:
 
 ```bash
-pnpm local:install -- --refresh-env
+pnpm local:install -- --refresh-env --refresh-stack-env
 ```
+
+After startup, the script prints the Icecast source credentials for a mount at `/radio.mp3`.
+
+It also creates `media/library`, which is watched by the local jukebox container. Put MP3 files there to start automatic playback.
 
 ### On the main dev machine
 
@@ -38,7 +42,7 @@ Run:
 
 - Next.js web app on port `3000`
 - Fastify API on port `3001`
-- AzuraCast on the same machine or another machine on the same LAN
+- Icecast or another compatible source on the same machine or another machine on the same LAN
 
 ### On the second device
 
@@ -67,8 +71,8 @@ And play audio from:
 
 Pick one of these to originate the audio stream:
 
-- **AzuraCast Web DJ** for the simplest browser-based flow
 - **BUTT** for a lightweight encoder from a mic, mixer, or DAW
+- **OBS / Mixxx / Liquidsoap** for richer live or jukebox setups
 
 Relevant repo docs:
 
@@ -95,9 +99,10 @@ Suggested early-stage values:
 - `APP_ENV=development`
 - `PORT=3001`
 - `SQLITE_DB_PATH=./data/wstprtradio.db`
-- `AZURACAST_BASE_URL=http://YOUR_LAN_IP:8080`
-- `AZURACAST_PUBLIC_API_URL=http://YOUR_LAN_IP:8080/api`
-- `AZURACAST_PUBLIC_STREAM_URL=http://YOUR_LAN_IP:8000/radio.mp3`
+- `STREAM_PUBLIC_URL=http://YOUR_STREAM_HOST:8000/radio.mp3`
+- `STREAM_METADATA_PROVIDER=static`
+- `STATIC_NOW_PLAYING_TITLE=West Port Radio`
+- `STATIC_NOW_PLAYING_ARTIST=Icecast Stream`
 
 Generate secrets locally:
 
@@ -118,26 +123,15 @@ Suggested LAN-friendly values:
 - `NEXT_PUBLIC_PUBLIC_SITE_URL=http://YOUR_LAN_IP:3000`
 - `NEXT_PUBLIC_STREAM_URL=http://YOUR_LAN_IP:8000/radio.mp3`
 
-## Step 3 — Start AzuraCast
+## Step 3 — Start your stream backend
 
-For the radio backend, the safest path is still the official AzuraCast installer:
+The primary path is now a generic Icecast-compatible stream. For practical purposes that means:
 
-- [infra/azuracast/README.md](../infra/azuracast/README.md)
+1. start Icecast on any reachable host
+2. confirm the listener URL plays directly in a browser
+3. use BUTT, OBS, Mixxx, or Liquidsoap as the encoder/source
 
-On a local or LAN VM:
-
-1. install Docker
-2. run the official AzuraCast install script
-3. create a station
-4. note the station ID
-5. generate an API key
-6. enable Web DJ
-7. confirm the public stream URL plays in a browser
-
-Default local ports commonly end up as:
-
-- `8080` for the AzuraCast admin UI
-- `8000` for the stream listener URL
+If you still want AzuraCast, treat it as a legacy optional layer.
 
 ## Step 4 — Start the monorepo
 
@@ -153,20 +147,17 @@ That means another device on the same network can hit your dev machine directly.
 
 ## Step 5 — Send audio from one device
 
-### Option A: Web DJ
-
-1. log into the admin UI
-2. use the live tools to open the Web DJ link
-3. start broadcasting from the browser on device A
-4. wait a few seconds for AzuraCast to report the live state
-
-### Option B: BUTT
+### Option A: BUTT
 
 1. install BUTT from [danielnoethen.de/butt](https://danielnoethen.de/butt/)
 2. configure the server as IceCast
 3. point it to the machine running AzuraCast
 4. use the source password from AzuraCast
 5. start streaming
+
+### Option B: Other encoders
+
+OBS, Mixxx, and Liquidsoap also work as long as they can push to your Icecast-compatible endpoint.
 
 ## Step 6 — Listen on another device
 
@@ -183,13 +174,13 @@ Press play. The audio element should use `NEXT_PUBLIC_STREAM_URL`, which is the 
 - confirm `NEXT_PUBLIC_STREAM_URL` points to the correct LAN host and port
 - open the stream URL directly in the second device browser
 - confirm firewall rules allow port `8000`
-- confirm AzuraCast is actually receiving source audio
+- confirm your stream backend is actually receiving source audio
 
 ### The site loads, but metadata is missing
 
-- confirm `AZURACAST_PUBLIC_API_URL` is correct
-- confirm the API can reach AzuraCast over the LAN
+- confirm `STREAM_PUBLIC_URL` is correct
 - check `/public/now-playing` on the API directly
+- if you want richer metadata, move from static mode to a custom metadata path later
 
 ### The admin UI works on the main machine but not the second device
 
@@ -208,11 +199,11 @@ Press play. The audio element should use `NEXT_PUBLIC_STREAM_URL`, which is the 
 - one repo everywhere
 - one simple API docs entrypoint at `/docs`
 - minimal custom orchestration
-- AzuraCast stays on the supported install path
+- the stream backend is decoupled from the app layer
 - local network support is handled by envs, host binding, and CORS rather than one-off hacks
 
 When the time comes to split roles across Fly.io and AWS, this local setup maps cleanly:
 
 - the Fastify API moves to Fly.io
-- AzuraCast stays on AWS or another persistent VM
+- Icecast or another stream backend stays on AWS or another persistent VM
 - the web app can stay on Vercel or run locally for design work

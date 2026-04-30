@@ -5,12 +5,18 @@ primary_region = "iad"
   dockerfile = "apps/api/Dockerfile"
 
 [env]
+  APP_ENV = "production"
   PORT = "3001"
   SQLITE_DB_PATH = "/data/wstprtradio.db"
 
 [[mounts]]
   source = "wstprtradio_data"
   destination = "/data"
+
+[vm]
+  cpu_kind = "shared"
+  cpus = 1
+  memory = "512mb"
 
 [[services]]
   internal_port = 3001

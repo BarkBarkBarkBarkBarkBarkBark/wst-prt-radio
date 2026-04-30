@@ -10,11 +10,11 @@ wstprtradio is a full-stack TypeScript monorepo that wires together three servic
 
 | Layer | Service | Hosted on |
 |---|---|---|
-| Station backend | AzuraCast (AutoDJ + live takeover) | Dedicated VM |
+| Station backend | Icecast-compatible stream or jukebox | Any reachable host |
 | Control backend | Fastify REST API + SQLite | Fly.io |
 | Frontend | Next.js App Router (public site + admin UI) | Vercel |
 
-Listeners visit **wstprtradio.com** and always hear something. When a DJ goes live, the site shows a live badge automatically and the station switches modes. When the DJ disconnects, AutoDJ resumes — no operator action required.
+Listeners visit **wstprtradio.com** and hear a direct stream. The current default path is a generic Icecast-compatible source. AzuraCast remains a vestigial legacy integration only.
 
 ---
 
@@ -44,7 +44,7 @@ packages/
 infra/
   fly/          fly.toml, deploy helpers
   vercel/       vercel.json, env docs
-  azuracast/    Deployment checklist, nginx proxy example
+  azuracast/    Legacy deployment checklist, kept for historical reference
 
 docs/
   api-reference.md        API troubleshooting and endpoint overview
@@ -64,8 +64,8 @@ docs/
 The API derives one of four modes from the upstream services and exposes it on `/public/status`:
 
 ```
-autodj      ← normal state; AzuraCast plays the playlist
-live_audio  ← a DJ connected via Web DJ or BUTT
+autodj      ← normal state; generic stream / jukebox is available
+live_audio  ← a legacy live source is detected
 live_video  ← OBS connected to Cloudflare Stream + an active live session
 degraded    ← upstream provider unreachable or required config missing
 ```
@@ -76,7 +76,7 @@ Mode transitions are automatic. The frontend polls `/public/status` every few se
 
 ## Public site features
 
-- Persistent audio player (AzuraCast stream URL, survives page navigation)
+- Persistent audio player (direct stream URL, survives page navigation)
 - Now Playing card (track, artist, album art)
 - Live badge when a DJ or video event is active
 - Listener count
@@ -95,7 +95,7 @@ Mode transitions are automatic. The frontend polls `/public/status` every few se
 | Create + end live video sessions | /admin/live |
 | View OBS ingest URL and stream key | /admin/live |
 | Add/edit/enable/disable/test destinations | /admin/destinations |
-| Edit AzuraCast + Cloudflare settings | /admin/settings |
+| Edit legacy AzuraCast + Cloudflare settings | /admin/settings |
 | Audit trail | /admin/audit |
 
 ---
@@ -121,7 +121,7 @@ All supported destinations fan out through Cloudflare Stream outputs.
 
 - Node.js 20+
 - pnpm 9+
-- An AzuraCast instance (or a public one for testing)
+- An Icecast-compatible stream URL
 - A Cloudflare account with Stream enabled
 
 ### Install dependencies
@@ -153,8 +153,8 @@ pnpm dev
 
 For the earliest useful end-to-end setup:
 
-1. run AzuraCast on your dev machine or another machine on the same LAN
-2. set `AZURACAST_*` env vars to that LAN host
+1. run Icecast or another compatible source on a reachable host
+2. set `STREAM_PUBLIC_URL` and `NEXT_PUBLIC_STREAM_URL` to that stream URL
 3. set `NEXT_PUBLIC_API_BASE_URL` and `NEXT_PUBLIC_STREAM_URL` to your dev machine's LAN IP
 4. start the repo with `pnpm dev`
 5. open `http://YOUR_LAN_IP:3000` on another device
@@ -162,6 +162,7 @@ For the earliest useful end-to-end setup:
 See:
 
 - [docs/local-network-streaming.md](docs/local-network-streaming.md)
+- [docs/icecast-fallback-guide.md](docs/icecast-fallback-guide.md)
 - [docs/linux-machine-setup.md](docs/linux-machine-setup.md)
 - [docs/api-reference.md](docs/api-reference.md)
 - [apps/api/openapi.yaml](apps/api/openapi.yaml)
@@ -175,15 +176,16 @@ pnpm local:install
 That script will:
 
 1. detect your LAN IP
-2. create local env files if missing
-3. pull Docker images
+2. create local env files and Icecast credentials if missing
+3. pull/build Docker images
 4. install workspace dependencies in a bootstrap container
-5. start the web and API services
+5. start Icecast, the jukebox, the API, and the web UI
+6. open the local UIs on macOS
 
 To regenerate LAN-focused env files:
 
 ```bash
-pnpm local:install -- --refresh-env
+pnpm local:install -- --refresh-env --refresh-stack-env
 ```
 
 To stop the local stack:
@@ -191,6 +193,17 @@ To stop the local stack:
 ```bash
 pnpm local:down
 ```
+
+For full local streaming, the stack now includes:
+
+- Icecast at `http://localhost:8000`
+- Jukebox feeder watching `media/library`
+- API at `http://localhost:3001`
+- web UI at `http://localhost:3000`
+
+Drop MP3 files into `media/library` to have the jukebox feed `/radio.mp3` automatically.
+
+The installer also prints the local Icecast source password so you can point BUTT or OBS at `/radio.mp3` immediately after stopping the `jukebox` service.
 
 ---
 
@@ -207,11 +220,16 @@ pnpm local:down
 | `SQLITE_DB_PATH` | Yes | Absolute path to SQLite file |
 | `ADMIN_SEED_EMAIL` | Yes | Bootstrap admin email |
 | `ADMIN_SEED_PASSWORD` | Yes ⚠️ | Bootstrap admin password (change after first login) |
-| `AZURACAST_BASE_URL` | Yes | e.g. `https://azura-admin.wstprtradio.com` |
-| `AZURACAST_PUBLIC_STREAM_URL` | Yes | e.g. `https://radio.wstprtradio.com/radio.mp3` |
-| `AZURACAST_PUBLIC_API_URL` | Yes | e.g. `https://radio.wstprtradio.com/api` |
-| `AZURACAST_API_KEY` | Yes ⚠️ | AzuraCast API key |
-| `AZURACAST_STATION_ID` | No (default `1`) | AzuraCast station numeric ID — check your station URL |
+| `STREAM_PUBLIC_URL` | Yes | direct listener URL, e.g. `http://host:8000/radio.mp3` |
+| `STREAM_METADATA_PROVIDER` | No | `static` by default; set to `azuracast` only for legacy mode |
+| `STATIC_NOW_PLAYING_TITLE` | No | fallback now-playing title |
+| `STATIC_NOW_PLAYING_ARTIST` | No | fallback now-playing artist |
+| `STATIC_NOW_PLAYING_ALBUM` | No | fallback now-playing album |
+| `AZURACAST_BASE_URL` | No | legacy only |
+| `AZURACAST_PUBLIC_STREAM_URL` | No | legacy only |
+| `AZURACAST_PUBLIC_API_URL` | No | legacy only |
+| `AZURACAST_API_KEY` | No | legacy only |
+| `AZURACAST_STATION_ID` | No (default `1`) | legacy only |
 | `CLOUDFLARE_ACCOUNT_ID` | Yes | Cloudflare account ID |
 | `CLOUDFLARE_STREAM_API_TOKEN` | Yes ⚠️ | Cloudflare Stream API token |
 | `CLOUDFLARE_LIVE_INPUT_ID` | Yes | Cloudflare live input ID |

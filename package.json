@@ -6,7 +6,7 @@
     "build": "pnpm -r run build",
     "dev": "pnpm --filter=@wstprtradio/shared build && pnpm -r --parallel run dev",
     "local:install": "bash ./scripts/install-local.sh",
-    "local:logs": "docker compose -f local_deploy.yaml logs -f api web",
+    "local:logs": "docker compose -f local_deploy.yaml logs -f icecast jukebox api web",
     "local:down": "docker compose -f local_deploy.yaml down",
     "lint": "pnpm -r run lint",
     "typecheck": "pnpm -r run typecheck",

@@ -5,6 +5,10 @@ import { requireSession } from '../../plugins/auth.js';
 import { getDb } from '../../db/client.js';
 import { encrypt } from '../../lib/crypto.js';
 import { writeAudit } from '../../lib/audit.js';
+import { env } from '../../lib/env.js';
+import { isLegacyAzuraCastConfigured } from '../../services/azuracastService.js';
+
+const OptionalUrlField = z.string().url().or(z.literal('')).optional();
 
 interface SettingsRow {
   id: string;
@@ -21,9 +25,9 @@ interface SettingsRow {
 
 const PatchSettingsSchema = z.object({
   stationName: z.string().min(1).max(100).optional(),
-  azuracastBaseUrl: z.string().url().optional(),
-  azuracastPublicStreamUrl: z.string().url().optional(),
-  azuracastPublicApiUrl: z.string().url().optional(),
+  azuracastBaseUrl: OptionalUrlField,
+  azuracastPublicStreamUrl: OptionalUrlField,
+  azuracastPublicApiUrl: OptionalUrlField,
   azuracastApiKey: z.string().optional(),
   cloudflareAccountId: z.string().optional(),
   cloudflareLiveInputId: z.string().optional(),
@@ -43,21 +47,20 @@ const settingsRoute: FastifyPluginAsync = async (fastify) => {
       )
       .get() as SettingsRow | undefined;
 
-    if (!row) {
-      return reply.send(null);
-    }
-
     return reply.send({
-      id: row.id,
-      stationName: row.station_name,
-      azuracastBaseUrl: row.azuracast_base_url,
-      azuracastPublicStreamUrl: row.azuracast_public_stream_url,
-      azuracastPublicApiUrl: row.azuracast_public_api_url,
-      cloudflareAccountId: row.cloudflare_account_id,
-      cloudflareLiveInputId: row.cloudflare_live_input_id,
-      defaultStreamMode: row.default_stream_mode,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
+      id: row?.id,
+      stationName: row?.station_name ?? 'wstprtradio',
+      streamPublicUrl: env.STREAM_PUBLIC_URL,
+      streamMetadataProvider: env.STREAM_METADATA_PROVIDER,
+      legacyAzuracastConfigured: isLegacyAzuraCastConfigured(),
+      azuracastBaseUrl: row?.azuracast_base_url ?? '',
+      azuracastPublicStreamUrl: row?.azuracast_public_stream_url ?? '',
+      azuracastPublicApiUrl: row?.azuracast_public_api_url ?? '',
+      cloudflareAccountId: row?.cloudflare_account_id ?? '',
+      cloudflareLiveInputId: row?.cloudflare_live_input_id ?? '',
+      defaultStreamMode: row?.default_stream_mode ?? 'autodj',
+      createdAt: row?.created_at,
+      updatedAt: row?.updated_at,
     });
   });
 

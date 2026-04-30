@@ -5,6 +5,7 @@ import { requireSession } from '../../plugins/auth.js';
 import { getDb } from '../../db/client.js';
 import { env } from '../../lib/env.js';
 import { writeAudit } from '../../lib/audit.js';
+import { isLegacyAzuraCastConfigured } from '../../services/azuracastService.js';
 
 const StartVideoSessionSchema = z.object({
   title: z.string().min(1).max(200),
@@ -17,6 +18,13 @@ const liveRoute: FastifyPluginAsync = async (fastify) => {
     '/admin/live/audio/open-web-dj-link',
     { preHandler: requireSession, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },
     async (request, reply) => {
+      if (!isLegacyAzuraCastConfigured() || !env.AZURACAST_BASE_URL) {
+        return reply.status(409).send({
+          error: 'Conflict',
+          message: 'Legacy AzuraCast Web DJ is not configured. Use your Icecast-compatible encoder instead.',
+        });
+      }
+
       const webDjUrl = `${env.AZURACAST_BASE_URL}/public/${env.AZURACAST_STATION_ID}/webdj`;
       writeAudit(
         getDb(),

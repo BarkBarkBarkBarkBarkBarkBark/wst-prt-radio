@@ -11,7 +11,7 @@ async function main() {
   // Seed admin user
   await seedAdminUser(db);
 
-  // Start AzuraCast polling
+  // Start legacy AzuraCast polling only when explicitly configured.
   startPolling();
 
   // Build and start server
