@@ -283,7 +283,7 @@ export function StreamClient() {
           <h3 className="text-lg font-semibold text-ink">Rules</h3>
           <ul className="mt-4 space-y-3 leading-6">
             <li>• One broadcaster at a time for v1.</li>
-            <li>• The admin must open the station first.</li>
+            <li>• The station starts open by default.</li>
             <li>• If another broadcaster is already live, you will be rejected.</li>
             <li>• If your browser is blocked, this page will tell you directly.</li>
           </ul>

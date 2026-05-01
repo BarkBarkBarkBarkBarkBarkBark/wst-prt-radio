@@ -5,7 +5,6 @@ const EnvSchema = z.object({
   APP_ENV: z.enum(['development', 'production', 'test']).default('development'),
   CORS_ALLOWED_ORIGINS: z.string().default(''),
   SQLITE_DB_PATH: z.string().min(1),
-  ADMIN_PASSWORD: z.string().min(8, 'ADMIN_PASSWORD must be at least 8 characters'),
   STATION_NAME: z.string().min(1).default('West Port Radio'),
 });
 

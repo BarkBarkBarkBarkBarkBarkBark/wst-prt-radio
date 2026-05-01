@@ -4,7 +4,15 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AlwaysOnPlaylist, SignalServerMessage, StationStatus } from '@wstprtradio/shared';
 import { API_BASE, getSignalUrl, apiFetch } from '@/lib/api';
 import { getOrCreatePeerId } from '@/lib/peerId';
+import { AudioMeters } from './AudioMeters';
 import { StatusBadge } from './StatusBadge';
+
+interface ListenClientProps {
+  autoStart?: boolean;
+  compact?: boolean;
+  title?: string;
+  subtitle?: string;
+}
 
 const rtcConfig: RTCConfiguration = {
   iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
@@ -19,7 +27,12 @@ function serializeCandidate(candidate: RTCIceCandidate) {
   };
 }
 
-export function ListenClient() {
+export function ListenClient({
+  autoStart = false,
+  compact = false,
+  title = 'Listener',
+  subtitle = 'Open the page, tap listen, and stay attached to the live broadcaster. The player auto-recovers when the stream drops.',
+}: ListenClientProps) {
   const [status, setStatus] = useState<StationStatus | null>(null);
   const [playlist, setPlaylist] = useState<AlwaysOnPlaylist | null>(null);
   const [enabled, setEnabled] = useState(false);
@@ -49,6 +62,12 @@ export function ListenClient() {
   useEffect(() => {
     enabledRef.current = enabled;
   }, [enabled]);
+
+  useEffect(() => {
+    if (autoStart) {
+      setEnabled(true);
+    }
+  }, [autoStart]);
 
   const closePeer = useCallback(() => {
     peerRef.current?.close();
@@ -90,7 +109,7 @@ export function ListenClient() {
         setCurrentFallbackIndex(normalizedIndex);
         setMessage(`Always-on: ${track.title}`);
       } catch {
-        setMessage(`Ready: ${track.title}`);
+        setMessage(`Ready: ${track.title}. Tap once if your browser blocks autoplay.`);
       }
     },
     [playlist],
@@ -289,10 +308,10 @@ export function ListenClient() {
       <div className="rounded-[2rem] border border-stone-300/70 bg-white/80 p-6 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="space-y-3">
-            <StatusBadge state={status?.stationState ?? 'closed'} />
-            <h2 className="text-3xl font-semibold text-ink">Listener</h2>
+            <StatusBadge state={status?.stationState ?? 'open'} />
+            <h2 className={`${compact ? 'text-2xl' : 'text-3xl'} font-semibold text-ink`}>{title}</h2>
             <p className="max-w-2xl text-sm leading-6 text-muted">
-              Open the page, tap listen, and stay attached to the live broadcaster. The player auto-recovers when the stream drops.
+              {subtitle}
             </p>
           </div>
           <button
@@ -300,7 +319,7 @@ export function ListenClient() {
             onClick={() => setEnabled(true)}
             className="rounded-full border border-ink bg-ink px-6 py-3 text-sm font-semibold text-paper transition hover:border-accent-red hover:bg-accent-red"
           >
-            {enabled ? 'Listening…' : 'Listen'}
+            {enabled ? 'On Air' : autoStart ? 'Wake Audio' : 'Listen'}
           </button>
         </div>
       </div>
@@ -308,6 +327,7 @@ export function ListenClient() {
       <div className="grid gap-6 lg:grid-cols-[1.35fr_0.65fr]">
         <div className="rounded-[2rem] border border-stone-300/70 bg-paper/90 p-6">
           <audio ref={audioRef} controls className="w-full" onEnded={() => void handleTrackEnded()} />
+          <AudioMeters audioRef={audioRef} className="mt-4" />
           <div className="mt-4 space-y-2 text-sm text-muted">
             <p>{message}</p>
             <p>

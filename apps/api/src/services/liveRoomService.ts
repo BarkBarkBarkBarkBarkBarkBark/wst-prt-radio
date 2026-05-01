@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import type { AdminStatus, AuditLogEntry, SignalClientMessage, SignalServerMessage, StationState, StationStatus } from '@wstprtradio/shared';
-import { env } from '../lib/env.js';
 import { getDb } from '../db/client.js';
 import { writeAudit } from '../lib/audit.js';
 
@@ -415,10 +414,6 @@ export function getAdminStatus(): AdminStatus {
         : null,
     recentAudit: recentAudit(),
   };
-}
-
-export function verifyAdminPassword(password: string): boolean {
-  return password.length > 0 && password === env.ADMIN_PASSWORD;
 }
 
 export function openStation(actor: string): StationStatus {

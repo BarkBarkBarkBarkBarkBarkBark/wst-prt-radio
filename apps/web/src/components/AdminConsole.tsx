@@ -2,55 +2,25 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { AdminStatus } from '@wstprtradio/shared';
-import { apiFetch, ApiError } from '@/lib/api';
+import { apiFetch } from '@/lib/api';
 import { StatusBadge } from './StatusBadge';
 
-const STORAGE_KEY = 'wstprtradio-admin-password';
-
-function adminHeaders(password: string) {
-  return { 'x-admin-password': password };
-}
-
 export function AdminConsole() {
-  const [password, setPassword] = useState('');
-  const [savedPasswordLoaded, setSavedPasswordLoaded] = useState(false);
   const [status, setStatus] = useState<AdminStatus | null>(null);
-  const [message, setMessage] = useState('Enter the admin password to control the station.');
+  const [message, setMessage] = useState('Admin controls are open in local-first mode.');
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
 
-  useEffect(() => {
-    const stored = window.localStorage.getItem(STORAGE_KEY) ?? '';
-    setPassword(stored);
-    setSavedPasswordLoaded(true);
-  }, []);
-
   const loadStatus = useCallback(async () => {
-    if (!password) {
-      return;
-    }
-
     try {
-      const next = await apiFetch<AdminStatus>('/admin/status', {
-        headers: adminHeaders(password),
-      });
+      const next = await apiFetch<AdminStatus>('/admin/status');
       setStatus(next);
       setMessage('Admin console connected.');
-      window.localStorage.setItem(STORAGE_KEY, password);
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 401) {
-        setStatus(null);
-        setMessage('Invalid admin password.');
-      } else {
-        setMessage('Unable to reach the admin API.');
-      }
+    } catch {
+      setMessage('Unable to reach the admin API.');
     }
-  }, [password]);
+  }, []);
 
   useEffect(() => {
-    if (!savedPasswordLoaded || !password) {
-      return;
-    }
-
     void loadStatus();
     const interval = window.setInterval(() => {
       void loadStatus();
@@ -59,21 +29,13 @@ export function AdminConsole() {
     return () => {
       window.clearInterval(interval);
     };
-  }, [loadStatus, password, savedPasswordLoaded]);
+  }, [loadStatus]);
 
   const runAction = useCallback(
     async (path: string, label: string) => {
-      if (!password) {
-        setMessage('Enter the admin password first.');
-        return;
-      }
-
       setLoadingAction(label);
       try {
-        await apiFetch<{ ok: boolean; status: AdminStatus }>(path, {
-          method: 'POST',
-          headers: adminHeaders(password),
-        });
+        await apiFetch<{ ok: boolean; status: AdminStatus }>(path, { method: 'POST' });
         await loadStatus();
       } catch (error) {
         setMessage(error instanceof Error ? error.message : 'Action failed.');
@@ -81,7 +43,7 @@ export function AdminConsole() {
         setLoadingAction(null);
       }
     },
-    [loadStatus, password],
+    [loadStatus],
   );
 
   const streamLink = useMemo(() => {
@@ -96,23 +58,11 @@ export function AdminConsole() {
       <div className="rounded-[2rem] border border-stone-300/70 bg-white/80 p-6 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="space-y-3">
-            <StatusBadge state={status?.stationState ?? 'closed'} />
+            <StatusBadge state={status?.stationState ?? 'open'} />
             <h2 className="text-3xl font-semibold text-ink">Admin</h2>
             <p className="max-w-2xl text-sm leading-6 text-muted">
               Open, close, kick, block, and monitor the one-broadcaster WebRTC station from a single screen.
             </p>
-          </div>
-          <div className="w-full max-w-sm">
-            <label className="block text-sm text-muted">
-              Shared admin password
-              <input
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                type="password"
-                className="mt-2 w-full rounded-2xl border border-stone-300 bg-paper px-4 py-3 text-ink outline-none focus:border-accent-red"
-                placeholder="ADMIN_PASSWORD"
-              />
-            </label>
           </div>
         </div>
       </div>

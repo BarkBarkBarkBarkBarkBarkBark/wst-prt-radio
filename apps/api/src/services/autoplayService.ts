@@ -26,6 +26,15 @@ const MIME_BY_EXTENSION: Record<string, string> = {
   '.m4a': 'audio/mp4',
 };
 
+const EXTENSION_PRIORITY: Record<string, number> = {
+  '.mp3': 5,
+  '.m4a': 4,
+  '.flac': 3,
+  '.wav': 2,
+  '.ogg': 1,
+  '.oga': 1,
+};
+
 function titleFromFilename(filename: string): string {
   return filename
     .replace(extname(filename), '')
@@ -43,7 +52,24 @@ export function getAlwaysOnPlaylist(): AlwaysOnPlaylist {
     return { tracks: [] };
   }
 
-  const tracks = readdirSync(SONGS_DIR)
+  const preferredFiles = new Map<string, string>();
+
+  for (const filename of readdirSync(SONGS_DIR).filter(canServeFile).sort((a, b) => a.localeCompare(b))) {
+    const key = filename.replace(extname(filename), '').toLowerCase();
+    const existing = preferredFiles.get(key);
+    if (!existing) {
+      preferredFiles.set(key, filename);
+      continue;
+    }
+
+    const nextPriority = EXTENSION_PRIORITY[extname(filename).toLowerCase()] ?? 0;
+    const existingPriority = EXTENSION_PRIORITY[extname(existing).toLowerCase()] ?? 0;
+    if (nextPriority > existingPriority) {
+      preferredFiles.set(key, filename);
+    }
+  }
+
+  const tracks = Array.from(preferredFiles.values())
     .filter(canServeFile)
     .sort((a, b) => a.localeCompare(b))
     .map((filename, index) => ({
