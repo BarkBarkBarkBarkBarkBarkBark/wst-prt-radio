@@ -33,6 +33,18 @@ export interface AdminStatus extends StationStatus {
   recentAudit: AuditLogEntry[];
 }
 
+export interface AlwaysOnTrack {
+  id: string;
+  title: string;
+  filename: string;
+  url: string;
+  mimeType: string;
+}
+
+export interface AlwaysOnPlaylist {
+  tracks: AlwaysOnTrack[];
+}
+
 export interface AdminPasswordPayload {
   password: string;
 }

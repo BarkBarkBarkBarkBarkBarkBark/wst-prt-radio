@@ -10,6 +10,7 @@ import corsPlugin from './plugins/cors.js';
 import rateLimitPlugin from './plugins/rateLimit.js';
 
 import healthRoute from './routes/health.js';
+import autoplayRoute from './routes/public/autoplay.js';
 import statusRoute from './routes/public/status.js';
 import adminControlRoute from './routes/admin/control.js';
 import signalRoute from './routes/signal.js';
@@ -44,6 +45,7 @@ export async function buildServer() {
   await fastify.register(fastifyWebsocket);
 
   await fastify.register(healthRoute);
+  await fastify.register(autoplayRoute);
   await fastify.register(statusRoute);
   await fastify.register(adminControlRoute);
   await fastify.register(signalRoute);

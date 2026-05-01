@@ -35,6 +35,18 @@ export const AdminStatusSchema = StationStatusSchema.extend({
   recentAudit: z.array(AuditLogEntrySchema),
 });
 
+export const AlwaysOnTrackSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  filename: z.string(),
+  url: z.string(),
+  mimeType: z.string(),
+});
+
+export const AlwaysOnPlaylistSchema = z.object({
+  tracks: z.array(AlwaysOnTrackSchema),
+});
+
 export const AdminPasswordPayloadSchema = z.object({
   password: z.string().min(1),
 });

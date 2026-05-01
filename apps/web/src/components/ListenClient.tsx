@@ -1,8 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { SignalServerMessage, StationStatus } from '@wstprtradio/shared';
-import { getSignalUrl, apiFetch } from '@/lib/api';
+import type { AlwaysOnPlaylist, SignalServerMessage, StationStatus } from '@wstprtradio/shared';
+import { API_BASE, getSignalUrl, apiFetch } from '@/lib/api';
 import { getOrCreatePeerId } from '@/lib/peerId';
 import { StatusBadge } from './StatusBadge';
 
@@ -21,10 +21,12 @@ function serializeCandidate(candidate: RTCIceCandidate) {
 
 export function ListenClient() {
   const [status, setStatus] = useState<StationStatus | null>(null);
+  const [playlist, setPlaylist] = useState<AlwaysOnPlaylist | null>(null);
   const [enabled, setEnabled] = useState(false);
   const [message, setMessage] = useState('Tap listen to connect to the station.');
   const [peerId, setPeerId] = useState('');
   const [connected, setConnected] = useState(false);
+  const [currentFallbackIndex, setCurrentFallbackIndex] = useState(0);
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
@@ -32,14 +34,16 @@ export function ListenClient() {
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const targetBroadcasterRef = useRef<string | null>(null);
   const enabledRef = useRef(false);
+  const fallbackModeRef = useRef(false);
 
   useEffect(() => {
     setPeerId(getOrCreatePeerId());
-    void apiFetch<StationStatus>('/public/status')
-      .then(setStatus)
-      .catch(() => {
-        setMessage('Unable to reach the control server right now.');
-      });
+    void Promise.all([
+      apiFetch<StationStatus>('/public/status').then(setStatus),
+      apiFetch<AlwaysOnPlaylist>('/public/autoplay').then(setPlaylist),
+    ]).catch(() => {
+      setMessage('Unable to reach the control server right now.');
+    });
   }, []);
 
   useEffect(() => {
@@ -54,6 +58,51 @@ export function ListenClient() {
       audioRef.current.srcObject = null;
     }
   }, []);
+
+  const stopFallbackAudio = useCallback(() => {
+    fallbackModeRef.current = false;
+    if (!audioRef.current) {
+      return;
+    }
+    audioRef.current.pause();
+    audioRef.current.removeAttribute('src');
+    audioRef.current.load();
+  }, []);
+
+  const playFallbackTrack = useCallback(
+    async (index: number) => {
+      if (!audioRef.current || !playlist?.tracks.length || !enabledRef.current) {
+        return;
+      }
+
+      const normalizedIndex = index % playlist.tracks.length;
+      const track = playlist.tracks[normalizedIndex];
+      if (!track) {
+        return;
+      }
+      fallbackModeRef.current = true;
+      audioRef.current.srcObject = null;
+      audioRef.current.src = `${API_BASE}${track.url}`;
+      audioRef.current.load();
+
+      try {
+        await audioRef.current.play();
+        setCurrentFallbackIndex(normalizedIndex);
+        setMessage(`Always-on: ${track.title}`);
+      } catch {
+        setMessage(`Ready: ${track.title}`);
+      }
+    },
+    [playlist],
+  );
+
+  const ensureFallbackAudio = useCallback(async () => {
+    if (!playlist?.tracks.length) {
+      setMessage('No always-on tracks are available yet.');
+      return;
+    }
+    await playFallbackTrack(currentFallbackIndex);
+  }, [currentFallbackIndex, playFallbackTrack, playlist]);
 
   const scheduleReconnect = useCallback(() => {
     if (!enabledRef.current || reconnectTimerRef.current !== null) {
@@ -89,6 +138,7 @@ export function ListenClient() {
       peer.ontrack = (event) => {
         const [stream] = event.streams;
         if (audioRef.current) {
+          stopFallbackAudio();
           audioRef.current.srcObject = stream ?? new MediaStream([event.track]);
           void audioRef.current.play().catch(() => {
             setMessage('Connected. If you cannot hear audio, tap listen again.');
@@ -119,7 +169,7 @@ export function ListenClient() {
       await peer.setLocalDescription(offer);
       sendJson({ type: 'sdp_offer', peerId, targetPeerId: broadcasterPeerId, sdp: offer.sdp ?? '' });
     },
-    [closePeer, peerId, sendJson],
+    [closePeer, peerId, sendJson, stopFallbackAudio],
   );
 
   const handleServerMessage = useCallback(
@@ -135,7 +185,7 @@ export function ListenClient() {
 
         if (!payload.broadcasterPresent || !payload.broadcasterPeerId) {
           closePeer();
-          setMessage(payload.stationState === 'closed' ? 'The station is closed.' : 'Nobody is live right now.');
+          await ensureFallbackAudio();
           return;
         }
 
@@ -160,7 +210,7 @@ export function ListenClient() {
         closePeer();
       }
     },
-    [closePeer, startPeerConnection],
+    [closePeer, ensureFallbackAudio, startPeerConnection],
   );
 
   const connect = useCallback(() => {
@@ -214,8 +264,25 @@ export function ListenClient() {
       sendJson({ type: 'leave', peerId });
       wsRef.current?.close();
       closePeer();
+      stopFallbackAudio();
     };
-  }, [closePeer, connect, enabled, peerId, sendJson]);
+  }, [closePeer, connect, enabled, peerId, sendJson, stopFallbackAudio]);
+
+  useEffect(() => {
+    if (!enabled || !playlist?.tracks.length || status?.broadcasterPresent) {
+      return;
+    }
+
+    void ensureFallbackAudio();
+  }, [enabled, ensureFallbackAudio, playlist, status?.broadcasterPresent]);
+
+  const handleTrackEnded = useCallback(() => {
+    if (!fallbackModeRef.current || !playlist?.tracks.length) {
+      return;
+    }
+    const nextIndex = (currentFallbackIndex + 1) % playlist.tracks.length;
+    void playFallbackTrack(nextIndex);
+  }, [currentFallbackIndex, playFallbackTrack, playlist]);
 
   return (
     <div className="space-y-6">
@@ -240,13 +307,14 @@ export function ListenClient() {
 
       <div className="grid gap-6 lg:grid-cols-[1.35fr_0.65fr]">
         <div className="rounded-[2rem] border border-stone-300/70 bg-paper/90 p-6">
-          <audio ref={audioRef} controls className="w-full" />
+          <audio ref={audioRef} controls className="w-full" onEnded={() => void handleTrackEnded()} />
           <div className="mt-4 space-y-2 text-sm text-muted">
             <p>{message}</p>
             <p>
               {status?.broadcasterPresent ? 'Broadcaster online.' : 'No broadcaster connected.'} {status ? `${status.listenerCount} listener${status.listenerCount === 1 ? '' : 's'}.` : ''}
             </p>
             <p>{connected ? 'Signal connected.' : 'Signal idle.'}</p>
+            <p>{playlist?.tracks.length ? `${playlist.tracks.length} always-on tracks from Fly.` : 'No always-on tracks loaded.'}</p>
           </div>
         </div>
 
