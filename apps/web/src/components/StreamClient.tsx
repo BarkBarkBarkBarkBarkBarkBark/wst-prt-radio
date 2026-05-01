@@ -56,6 +56,11 @@ export function StreamClient() {
   const [guestStatus, setGuestStatus] = useState<'idle' | 'joining' | 'live' | 'rejected'>('idle');
   const [guestMessage, setGuestMessage] = useState('');
 
+  // audio device picker
+  const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
+  const [hostDeviceId, setHostDeviceId] = useState('');
+  const [guestDeviceId, setGuestDeviceId] = useState('');
+
   // host refs
   const wsRef = useRef<WebSocket | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -81,6 +86,19 @@ export function StreamClient() {
   useEffect(() => {
     void apiFetch<StationStatus>('/public/status').then(setStatus).catch(() => undefined);
   }, []);
+
+  const enumerateAudioInputs = useCallback(async () => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      setAudioDevices(devices.filter((d) => d.kind === 'audioinput'));
+    } catch { /* permissions not yet granted, will retry after first getUserMedia */ }
+  }, []);
+
+  useEffect(() => {
+    void enumerateAudioInputs();
+    navigator.mediaDevices.addEventListener('devicechange', enumerateAudioInputs);
+    return () => navigator.mediaDevices.removeEventListener('devicechange', enumerateAudioInputs);
+  }, [enumerateAudioInputs]);
 
   // HOST
 
@@ -269,13 +287,22 @@ export function StreamClient() {
     if (!peerId) return;
     setIsStarting(true); setMessage('Requesting microphone access\u2026');
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
+      const isInterface = hostDeviceId !== '' && hostDeviceId !== 'default';
+      const audioConstraints: MediaTrackConstraints = {
+        ...(hostDeviceId ? { deviceId: { exact: hostDeviceId } } : {}),
+        echoCancellation: !isInterface,
+        noiseSuppression: !isInterface,
+        autoGainControl: !isInterface,
+      };
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: false });
+      // Re-enumerate now that permission is granted — gets real device labels.
+      void enumerateAudioInputs();
       localStreamRef.current = stream;
       ensureMixer(stream);
       if (monitorRef.current) monitorRef.current.srcObject = stream;
       connectSocket();
     } catch { setIsStarting(false); setMessage('Microphone access was denied.'); }
-  }, [connectSocket, ensureMixer, peerId]);
+  }, [connectSocket, ensureMixer, enumerateAudioInputs, hostDeviceId, peerId]);
 
   const toggleAllowGuests = useCallback((enabled: boolean) => {
     setAllowGuests(enabled);
@@ -361,7 +388,15 @@ export function StreamClient() {
   const joinAsGuest = useCallback(async () => {
     setGuestStatus('joining'); setGuestMessage('Requesting microphone access\u2026');
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
+      const isInterface = guestDeviceId !== '' && guestDeviceId !== 'default';
+      const audioConstraints: MediaTrackConstraints = {
+        ...(guestDeviceId ? { deviceId: { exact: guestDeviceId } } : {}),
+        echoCancellation: !isInterface,
+        noiseSuppression: !isInterface,
+        autoGainControl: !isInterface,
+      };
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: false });
+      void enumerateAudioInputs();
       guestStreamRef.current = stream;
       const ws = new WebSocket(getSignalUrl());
       guestWsRef.current = ws;
@@ -369,7 +404,7 @@ export function StreamClient() {
       ws.onmessage = (ev) => { try { void handleGuestServerMessage(JSON.parse(ev.data) as SignalServerMessage); } catch { /* ignore */ } };
       ws.onclose = () => { setGuestStatus((s) => s === 'live' ? 'idle' : s); };
     } catch { setGuestStatus('idle'); setGuestMessage('Microphone access was denied.'); }
-  }, [guestDisplayName, guestPeerId, guestSendJson, handleGuestServerMessage]);
+  }, [enumerateAudioInputs, guestDeviceId, guestDisplayName, guestPeerId, guestSendJson, handleGuestServerMessage]);
 
   useEffect(() => () => { teardownGuest(); }, [teardownGuest]);
 
@@ -404,6 +439,25 @@ export function StreamClient() {
 
       <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
         <div className="rounded-[2rem] border border-stone-300/70 bg-paper/90 p-6 space-y-4">
+          <label className="block text-sm text-muted">
+            Audio input
+            <select
+              value={hostDeviceId}
+              onChange={(e) => setHostDeviceId(e.target.value)}
+              className="mt-2 w-full rounded-2xl border border-stone-300 bg-white px-4 py-3 text-ink outline-none focus:border-accent-red"
+            >
+              <option value="">Default microphone</option>
+              {audioDevices.map((d) => (
+                <option key={d.deviceId} value={d.deviceId}>
+                  {d.label || `Input ${d.deviceId.slice(0, 8)}`}
+                </option>
+              ))}
+            </select>
+            {hostDeviceId && hostDeviceId !== 'default' && (
+              <span className="mt-1 inline-block text-xs text-emerald-600">DSP off — clean signal for interfaces &amp; virtual cables</span>
+            )}
+          </label>
+
           <label className="block text-sm text-muted">
             Display name (optional)
             <input value={displayName} onChange={(e) => setDisplayName(e.target.value)}
@@ -467,6 +521,23 @@ export function StreamClient() {
             <span className="ml-auto text-xs text-muted">{status?.guestCount ?? 0}/4 slots</span>
           </div>
           <p className="text-sm text-muted">The host has opened the mic. Your audio will mix live into the broadcast.</p>
+          <label className="block text-sm text-muted">
+            Audio input
+            <select
+              value={guestDeviceId}
+              onChange={(e) => setGuestDeviceId(e.target.value)}
+              disabled={guestStatus === 'joining'}
+              className="mt-2 w-full rounded-2xl border border-stone-300 bg-white px-4 py-3 text-ink outline-none focus:border-accent-red disabled:opacity-50"
+            >
+              <option value="">Default microphone</option>
+              {audioDevices.map((d) => (
+                <option key={d.deviceId} value={d.deviceId}>
+                  {d.label || `Input ${d.deviceId.slice(0, 8)}`}
+                </option>
+              ))}
+            </select>
+          </label>
+
           <label className="block text-sm text-muted">
             Your name (optional)
             <input value={guestDisplayName} onChange={(e) => setGuestDisplayName(e.target.value)}
