@@ -1,5 +1,7 @@
 interface VinylRecordProps {
   isLive?: boolean;
+  isPlaying?: boolean;
+  amplitude?: number; // 0–1 for sound-reactive glow
   sizeClassName?: string;
 }
 
@@ -25,25 +27,44 @@ function AntennaIcon() {
 
 const GROOVE_INSETS = [20, 36, 52, 70, 88, 106, 124, 142];
 
-export function VinylRecord({ isLive = false, sizeClassName = 'h-[22rem] w-[22rem] sm:h-[28rem] sm:w-[28rem]' }: VinylRecordProps) {
+export function VinylRecord({
+  isLive = false,
+  isPlaying = false,
+  amplitude = 0,
+  sizeClassName = 'h-[22rem] w-[22rem] sm:h-[28rem] sm:w-[28rem]',
+}: VinylRecordProps) {
+  // Sound-reactive glow: dark inky shadow that breathes with the music
+  const glowRadius  = Math.round(30 + amplitude * 80);
+  const glowSpread  = Math.round(4  + amplitude * 24);
+  const glowAlpha   = isLive
+    ? (0.18 + amplitude * 0.45).toFixed(2)
+    : (0.08 + amplitude * 0.28).toFixed(2);
+  const glowColor   = isLive
+    ? `rgba(183,53,36,${glowAlpha})`
+    : `rgba(8,6,4,${glowAlpha})`;
+
   return (
     <div className={`relative mx-auto ${sizeClassName}`}>
+      {/* Sound-reactive outer glow ring */}
       <div
-        className="absolute inset-[-12%] rounded-full opacity-80"
+        className="absolute inset-[-14%] rounded-full"
         style={{
-          background:
-            isLive
-              ? 'radial-gradient(circle, rgba(183,53,36,0.18) 0%, rgba(183,53,36,0.08) 30%, transparent 70%)'
-              : 'radial-gradient(circle, rgba(12,12,18,0.14) 0%, rgba(12,12,18,0.06) 38%, transparent 72%)',
+          background: `radial-gradient(circle, ${glowColor} 0%, transparent 68%)`,
+          filter: `blur(${glowRadius * 0.4}px)`,
+          transition: 'filter 0.12s ease-out, background 0.12s ease-out',
         }}
       />
 
       <div
-        className="relative flex h-full w-full items-center justify-center rounded-full border border-black/10 shadow-[0_30px_80px_rgba(0,0,0,0.22)]"
+        className="relative flex h-full w-full items-center justify-center rounded-full border border-black/10 shadow-[0_30px_80px_rgba(0,0,0,0.28)]"
         style={{
           background:
             'radial-gradient(circle at 35% 28%, rgba(255,255,255,0.09) 0%, transparent 28%), radial-gradient(circle, #171717 0%, #0b0b0d 55%, #000 100%)',
-          animation: 'vinylSpin 18s linear infinite',
+          animation: isPlaying ? 'vinylSpin 18s linear infinite' : undefined,
+          boxShadow: amplitude > 0.05
+            ? `0 0 ${glowRadius}px ${glowSpread}px ${glowColor}, 0 30px 80px rgba(0,0,0,0.28)`
+            : '0 30px 80px rgba(0,0,0,0.28)',
+          transition: 'box-shadow 0.12s ease-out',
         }}
       >
         {GROOVE_INSETS.map((inset) => (

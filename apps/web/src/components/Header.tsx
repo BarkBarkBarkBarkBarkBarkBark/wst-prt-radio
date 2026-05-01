@@ -58,7 +58,7 @@ export function Header() {
             <Link
               key={label}
               href={href}
-              className="px-3 py-1.5 text-[11px] tracking-widest uppercase text-ink hover:text-accent-red border border-transparent hover:border-accent-red/40 rounded-full transition-colors"
+              className="px-3 py-1.5 text-[11px] tracking-widest uppercase text-ink hover:text-accent-red border border-transparent hover:border-accent-red/40 transition-colors"
             >
               {label}
             </Link>

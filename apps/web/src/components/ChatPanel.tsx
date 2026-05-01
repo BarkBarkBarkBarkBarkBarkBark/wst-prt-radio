@@ -132,12 +132,12 @@ export function ChatPanel({ className = '', listenerCount = 0 }: ChatPanelProps)
   };
 
   return (
-    <div className={`flex flex-col rounded-2xl border border-white/8 bg-[#111] overflow-hidden ${className}`}>
+    <div className={`flex flex-col overflow-hidden ${className}`}>
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-white/8 px-4 py-3">
-        <span className="font-mono text-[11px] uppercase tracking-widest text-white/60">Chat</span>
-        <span className="flex items-center gap-1.5 font-mono text-[11px] text-amber-400">
-          <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+      <div className="flex items-center justify-between border-b border-ink/10 px-4 py-3 bg-paper/60">
+        <span className="font-mono text-[11px] uppercase tracking-widest text-muted">Chat</span>
+        <span className="flex items-center gap-1.5 font-mono text-[11px] text-amber-700">
+          <span className="inline-block h-1.5 w-1.5 bg-amber-600 accent-flicker" />
           {listenerCount}
         </span>
       </div>
@@ -146,16 +146,16 @@ export function ChatPanel({ className = '', listenerCount = 0 }: ChatPanelProps)
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 scrollbar-thin" style={{ maxHeight: 320 }}>
         {messages.map((m) => (
           <div key={m.id} className="flex items-start gap-2.5">
-            {/* Avatar dot */}
-            <div className="mt-0.5 h-5 w-5 flex-shrink-0 rounded-full bg-white/10 flex items-center justify-center">
-              <span className="text-[8px] text-white/40">{m.user[0]?.toUpperCase()}</span>
+            {/* Avatar marker — hard square */}
+            <div className="mt-0.5 h-5 w-5 flex-shrink-0 bg-ink/8 flex items-center justify-center">
+              <span className="text-[8px] text-muted font-mono">{m.user[0]?.toUpperCase()}</span>
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-baseline gap-2">
-                <span className="text-[11px] font-semibold text-white/70 truncate">{m.user}</span>
-                <span className="text-[9px] text-white/25 flex-shrink-0">{fmt(m.ts)}</span>
+                <span className="text-[11px] font-mono font-semibold text-ink/70 truncate">{m.user}</span>
+                <span className="text-[9px] font-mono text-muted/50 flex-shrink-0">{fmt(m.ts)}</span>
               </div>
-              <p className="text-[12px] leading-snug text-white/55 break-words">{m.text}</p>
+              <p className="text-[12px] leading-snug text-ink/60 break-words">{m.text}</p>
             </div>
           </div>
         ))}
@@ -163,7 +163,7 @@ export function ChatPanel({ className = '', listenerCount = 0 }: ChatPanelProps)
       </div>
 
       {/* Input */}
-      <div className="border-t border-white/8 flex items-center gap-2 px-3 py-2">
+      <div className="border-t border-ink/10 flex items-center gap-2 px-3 py-2 bg-paper/40">
         <input
           type="text"
           value={draft}
@@ -171,13 +171,13 @@ export function ChatPanel({ className = '', listenerCount = 0 }: ChatPanelProps)
           onKeyDown={onKeyDown}
           placeholder="say something…"
           maxLength={200}
-          className="flex-1 bg-transparent text-[12px] text-white/70 placeholder-white/20 outline-none"
+          className="flex-1 bg-transparent text-[12px] font-mono text-ink/70 placeholder-muted/40 outline-none"
         />
         <button
           type="button"
           onClick={send}
           disabled={!draft.trim()}
-          className="text-amber-400 disabled:opacity-20 transition-opacity hover:text-amber-300"
+          className="text-amber-700 disabled:opacity-20 transition-opacity hover:text-accent-red"
           aria-label="Send"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
