@@ -1,34 +1,3 @@
-export type LiveRoomAccessMode = 'open' | 'passphrase';
-export type LiveRoomBroadcastMode = 'open_mic' | 'official';
-
-export type LiveRoomParticipantRole = 'listener' | 'speaker' | 'host';
-
-export interface LiveRoomParticipant {
-  id: string;
-  displayName: string;
-  role: LiveRoomParticipantRole;
-  joinedAt: string;
-  isActiveBroadcaster: boolean;
-}
-
-export interface LiveRoomSnapshot {
-  id: string;
-  title: string;
-  accessMode: LiveRoomAccessMode;
-  broadcastMode: LiveRoomBroadcastMode;
-  passphraseRequired: boolean;
-  hostParticipantId: string | null;
-  activeBroadcasterId: string | null;
-  participants: LiveRoomParticipant[];
-  updatedAt: string;
-}
-
-export interface LiveRoomJoinResponse {
-  participantId: string;
-  participantToken: string;
-  room: LiveRoomSnapshot;
-}
-
 export interface LiveRoomIceCandidate {
   candidate: string;
   sdpMid: string | null;
@@ -36,24 +5,84 @@ export interface LiveRoomIceCandidate {
   usernameFragment?: string | null;
 }
 
-export interface LiveRoomSignalEnvelope {
-  type: 'offer' | 'answer' | 'ice-candidate';
-  fromParticipantId: string;
-  toParticipantId: string;
-  sdp?: string;
-  candidate?: LiveRoomIceCandidate;
+export type SignalRole = 'listener' | 'broadcaster';
+
+export interface SignalPeer {
+  peerId: string;
+  displayName?: string;
 }
 
-export type LiveRoomServerEvent =
+export type SignalClientMessage =
   | {
-      type: 'room.snapshot';
-      room: LiveRoomSnapshot;
+      type: 'join_as_listener';
+      peerId: string;
     }
   | {
-      type: 'room.signal';
-      signal: LiveRoomSignalEnvelope;
+      type: 'join_as_broadcaster';
+      peerId: string;
+      displayName?: string;
     }
   | {
-      type: 'room.notice';
-      message: string;
+      type: 'sdp_offer';
+      peerId: string;
+      targetPeerId: string;
+      sdp: string;
+    }
+  | {
+      type: 'sdp_answer';
+      peerId: string;
+      targetPeerId: string;
+      sdp: string;
+    }
+  | {
+      type: 'ice_candidate';
+      peerId: string;
+      targetPeerId: string;
+      candidate: LiveRoomIceCandidate;
+    }
+  | {
+      type: 'leave';
+      peerId: string;
+    };
+
+export type SignalServerMessage =
+  | {
+      type: 'station_status';
+      stationState: 'closed' | 'open' | 'live' | 'blocked' | 'degraded';
+      liveSessionId: string | null;
+      listenerCount: number;
+      broadcasterPresent: boolean;
+      broadcasterPeerId: string | null;
+      broadcasterDisplayName: string | null;
+      updatedAt: string;
+    }
+  | {
+      type: 'broadcaster_accepted';
+      liveSessionId: string;
+    }
+  | {
+      type: 'broadcaster_rejected';
+      reason: string;
+    }
+  | {
+      type: 'listener_accepted';
+    }
+  | {
+      type: 'peer_offer';
+      fromPeerId: string;
+      sdp: string;
+    }
+  | {
+      type: 'peer_answer';
+      fromPeerId: string;
+      sdp: string;
+    }
+  | {
+      type: 'ice_candidate';
+      fromPeerId: string;
+      candidate: LiveRoomIceCandidate;
+    }
+  | {
+      type: 'force_disconnect';
+      reason: string;
     };

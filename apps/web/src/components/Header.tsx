@@ -24,11 +24,10 @@ function RadioTowerIcon({ className }: { className?: string }) {
 }
 
 const NAV_ITEMS = [
-  { label: 'Play', href: '/#player' },
-  { label: 'Live', href: '/live' },
-  { label: 'Chat', href: '/#chat' },
-  { label: 'Shop', href: '#' },
-  { label: 'Info', href: '/about' },
+  { label: 'Home', href: '/' },
+  { label: 'Listen', href: '/listen' },
+  { label: 'Stream', href: '/stream' },
+  { label: 'Admin', href: '/admin' },
 ];
 
 export function Header() {

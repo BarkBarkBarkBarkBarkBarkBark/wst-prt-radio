@@ -5,14 +5,14 @@ type AuditDb = ReturnType<typeof getDb>;
 
 export function writeAudit(
   db: AuditDb,
-  actorUserId: string,
+  actor: string,
   action: string,
-  entityType: string,
-  entityId: string,
+  entityType: string | null,
+  entityId: string | null,
   data?: unknown,
 ): void {
   db.prepare(
-    `INSERT INTO audit_log (id, actor_user_id, action, entity_type, entity_id, data_json, created_at)
+    `INSERT INTO audit_log (id, actor, action, entity_type, entity_id, data_json, created_at)
      VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`,
-  ).run(nanoid(), actorUserId, action, entityType, entityId, data ? JSON.stringify(data) : null);
+  ).run(nanoid(), actor, action, entityType, entityId, data ? JSON.stringify(data) : null);
 }

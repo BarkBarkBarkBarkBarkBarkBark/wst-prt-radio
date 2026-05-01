@@ -1,44 +1,38 @@
-export type StationMode = 'autodj' | 'live_audio' | 'live_video' | 'degraded';
-
-export interface NowPlaying {
-  title: string;
-  artist: string;
-  album?: string;
-  artUrl?: string;
-  listenersCount: number;
-  isLive: boolean;
-  streamUrl: string;
-}
-
-export interface LiveSession {
-  id: string;
-  mode: 'live_audio' | 'live_video';
-  title: string;
-  status: 'pending' | 'active' | 'ended';
-  startedAt: string | null;
-}
+export type StationState = 'closed' | 'open' | 'live' | 'blocked' | 'degraded';
 
 export interface StationStatus {
-  mode: StationMode;
-  nowPlaying: NowPlaying | null;
-  liveSession: LiveSession | null;
+  stationState: StationState;
+  liveSessionId: string | null;
+  listenerCount: number;
+  broadcasterPresent: boolean;
+  broadcasterPeerId: string | null;
+  broadcasterDisplayName: string | null;
+  updatedAt: string;
 }
 
-export type DestinationKind =
-  | 'twitch'
-  | 'instagram'
-  | 'custom_rtmp'
-  | 'custom_srt'
-  | 'tiktok_experimental'
-  | 'discord_notify';
+export interface BroadcasterStatus {
+  peerId: string;
+  displayName: string | null;
+  sessionId: string;
+  startedAt: string;
+}
 
-export interface Destination {
+export interface AuditLogEntry {
   id: string;
-  kind: DestinationKind;
-  name: string;
-  enabled: boolean;
-  url: string;
-  sortOrder: number;
+  actor: string;
+  action: string;
+  entityType: string | null;
+  entityId: string | null;
+  data: unknown;
   createdAt: string;
-  updatedAt: string;
+}
+
+export interface AdminStatus extends StationStatus {
+  blockedPeerCount: number;
+  currentBroadcaster: BroadcasterStatus | null;
+  recentAudit: AuditLogEntry[];
+}
+
+export interface AdminPasswordPayload {
+  password: string;
 }

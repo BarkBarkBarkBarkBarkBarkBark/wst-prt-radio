@@ -1,5 +1,9 @@
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:3001';
 
+export function getSignalUrl(): string {
+  return `${API_BASE.replace(/^http/, 'ws')}/signal`;
+}
+
 interface ApiOptions extends RequestInit {
   params?: Record<string, string | number>;
 }
@@ -27,9 +31,8 @@ export async function apiFetch<T>(path: string, options: ApiOptions = {}): Promi
 
   const response = await fetch(url, {
     ...init,
-    credentials: 'include',
     headers: {
-      'Content-Type': 'application/json',
+      ...(init.body ? { 'Content-Type': 'application/json' } : {}),
       ...init.headers,
     },
   });

@@ -1,27 +1,40 @@
 import { z } from 'zod';
 
-export const StationModeSchema = z.enum(['autodj', 'live_audio', 'live_video', 'degraded']);
-
-export const NowPlayingSchema = z.object({
-  title: z.string(),
-  artist: z.string(),
-  album: z.string().optional(),
-  artUrl: z.string().url().optional(),
-  listenersCount: z.number().int().nonnegative(),
-  isLive: z.boolean(),
-  streamUrl: z.string().url(),
-});
-
-export const LiveSessionSchema = z.object({
-  id: z.string(),
-  mode: z.enum(['live_audio', 'live_video']),
-  title: z.string(),
-  status: z.enum(['pending', 'active', 'ended']),
-  startedAt: z.string().nullable(),
-});
+export const StationStateSchema = z.enum(['closed', 'open', 'live', 'blocked', 'degraded']);
 
 export const StationStatusSchema = z.object({
-  mode: StationModeSchema,
-  nowPlaying: NowPlayingSchema.nullable(),
-  liveSession: LiveSessionSchema.nullable(),
+  stationState: StationStateSchema,
+  liveSessionId: z.string().nullable(),
+  listenerCount: z.number().int().nonnegative(),
+  broadcasterPresent: z.boolean(),
+  broadcasterPeerId: z.string().nullable(),
+  broadcasterDisplayName: z.string().nullable(),
+  updatedAt: z.string(),
+});
+
+export const BroadcasterStatusSchema = z.object({
+  peerId: z.string(),
+  displayName: z.string().nullable(),
+  sessionId: z.string(),
+  startedAt: z.string(),
+});
+
+export const AuditLogEntrySchema = z.object({
+  id: z.string(),
+  actor: z.string(),
+  action: z.string(),
+  entityType: z.string().nullable(),
+  entityId: z.string().nullable(),
+  data: z.unknown(),
+  createdAt: z.string(),
+});
+
+export const AdminStatusSchema = StationStatusSchema.extend({
+  blockedPeerCount: z.number().int().nonnegative(),
+  currentBroadcaster: BroadcasterStatusSchema.nullable(),
+  recentAudit: z.array(AuditLogEntrySchema),
+});
+
+export const AdminPasswordPayloadSchema = z.object({
+  password: z.string().min(1),
 });
