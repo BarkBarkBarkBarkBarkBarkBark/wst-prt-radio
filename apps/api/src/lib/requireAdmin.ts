@@ -7,15 +7,11 @@ declare module 'fastify' {
 }
 
 /**
- * preHandler that 401s any request without an admin session.
- * Apply to every route under /admin/*.
+ * Auth is currently disabled — all admin routes are open.
+ * Re-enable by restoring the session check below.
  */
-export async function requireAdmin(request: FastifyRequest, reply: FastifyReply): Promise<void> {
-  const admin = request.session?.admin;
-  if (!admin) {
-    return reply.status(401).send({ error: 'Unauthorized' });
-  }
-  request.adminUsername = admin.username;
+export async function requireAdmin(request: FastifyRequest, _reply: FastifyReply): Promise<void> {
+  request.adminUsername = request.session?.admin?.username ?? 'admin';
 }
 
 declare module 'fastify' {

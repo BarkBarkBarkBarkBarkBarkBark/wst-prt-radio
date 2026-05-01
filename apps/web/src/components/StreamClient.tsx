@@ -270,7 +270,7 @@ export function StreamClient() {
       <div className="rounded-[2rem] border border-stone-300/70 bg-white/80 p-6 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="space-y-3">
-            <StatusBadge state={status?.stationState ?? 'closed'} />
+            <StatusBadge state={status?.stationState ?? 'open'} />
             <h2 className="text-3xl font-semibold text-ink">Broadcaster</h2>
             <p className="max-w-2xl text-sm leading-6 text-muted">
               Anonymous by default. Tap start, allow microphone access, and you become the single live broadcaster when the station is open.

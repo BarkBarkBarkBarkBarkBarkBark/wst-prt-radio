@@ -39,12 +39,9 @@ const authRoute: FastifyPluginAsync = async (fastify) => {
     return reply.send({ ok: true });
   });
 
-  fastify.get('/auth/me', async (request, reply) => {
-    const admin = request.session.admin;
-    if (!admin) {
-      return reply.status(401).send({ error: 'Unauthorized' });
-    }
-    return reply.send({ username: admin.username });
+  fastify.get('/auth/me', async (_request, reply) => {
+    // Auth is currently open — always report as logged-in admin.
+    return reply.send({ username: 'admin' });
   });
 };
 
