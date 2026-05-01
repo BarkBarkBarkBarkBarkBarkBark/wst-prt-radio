@@ -9,12 +9,15 @@ COPY apps/api/package.json apps/api/package.json
 COPY packages/shared/package.json packages/shared/package.json
 COPY packages/ui/package.json packages/ui/package.json
 
+
 RUN pnpm install --frozen-lockfile
 
 COPY . .
 
 RUN pnpm --filter @wstprtradio/shared build \
 	&& pnpm --filter @wstprtradio/api build
+
+COPY apps/api/src/db/migrations ./apps/api/dist/db/migrations
 
 EXPOSE 3001
 
