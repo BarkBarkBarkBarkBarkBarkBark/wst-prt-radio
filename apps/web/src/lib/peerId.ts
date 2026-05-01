@@ -12,11 +12,12 @@
  * thinking they're the same connection being replaced.
  */
 
-export type PeerRole = 'listener' | 'broadcaster';
+export type PeerRole = 'listener' | 'broadcaster' | 'guest';
 
 const STORAGE_KEYS: Record<PeerRole, string> = {
   listener: 'wstprtradio-listener-peer-id',
   broadcaster: 'wstprtradio-broadcaster-peer-id',
+  guest: 'wstprtradio-guest-peer-id',
 };
 
 export function getOrCreatePeerId(role: PeerRole = 'listener'): string {
