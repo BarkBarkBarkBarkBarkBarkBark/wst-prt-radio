@@ -30,7 +30,7 @@ function runMigrations(database: Database.Database): void {
 function initializeCoreRows(database: Database.Database): void {
   database.prepare(
     `INSERT INTO stream_state (id, station_state, live_session_id, broadcaster_peer_id, broadcaster_display_name, updated_at)
-     VALUES ('primary', 'closed', NULL, NULL, NULL, ?)
+     VALUES ('primary', 'open', NULL, NULL, NULL, ?)
      ON CONFLICT(id) DO NOTHING`,
   ).run(new Date().toISOString());
 }

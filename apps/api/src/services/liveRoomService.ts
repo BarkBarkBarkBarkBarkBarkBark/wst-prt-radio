@@ -57,7 +57,7 @@ function readState(): StreamStateRow {
   }
 
   const fallback: StreamStateRow = {
-    station_state: 'closed',
+    station_state: 'open',
     live_session_id: null,
     broadcaster_peer_id: null,
     broadcaster_display_name: null,
@@ -379,6 +379,11 @@ export function initializeStationService(): void {
   const state = readState();
   if (state.station_state === 'live') {
     endSession(state.live_session_id, 'server_restart');
+    setState({ stationState: 'open' });
+    return;
+  }
+
+  if (state.station_state === 'closed' && !state.broadcaster_peer_id) {
     setState({ stationState: 'open' });
   }
 }
