@@ -9,6 +9,7 @@ import { StatusBadge } from './StatusBadge';
 export function AdminConsole() {
   const router = useRouter();
   const [me, setMe] = useState<{ username: string } | null>(null);
+  const [authError, setAuthError] = useState(false);
   const [status, setStatus] = useState<AdminStatus | null>(null);
   const [message, setMessage] = useState('Loading admin console…');
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
@@ -44,7 +45,9 @@ export function AdminConsole() {
         if (err instanceof ApiError && err.status === 401) {
           router.replace('/admin/login');
         } else {
-          setMessage('Unable to reach the auth API.');
+          // Network error or CORS block — don't spin forever, show a message.
+          setAuthError(true);
+          setMessage('Cannot reach the API. Check that NEXT_PUBLIC_API_BASE_URL is set and the API is running.');
         }
       });
     return () => {
@@ -146,7 +149,15 @@ export function AdminConsole() {
   if (!me) {
     return (
       <div className="rounded-[2rem] border border-stone-300/70 bg-white/80 p-6 text-sm text-muted">
-        Verifying session…
+        {authError ? (
+          <p className="text-accent-red">
+            ⚠ Cannot reach the API. Make sure{' '}
+            <code>NEXT_PUBLIC_API_BASE_URL</code> is set in Vercel and the Fly
+            app is running.
+          </p>
+        ) : (
+          'Verifying session…'
+        )}
       </div>
     );
   }

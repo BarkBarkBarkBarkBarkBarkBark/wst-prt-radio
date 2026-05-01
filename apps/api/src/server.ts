@@ -57,13 +57,14 @@ export async function buildServer() {
     secret: env.SESSION_SECRET,
     cookieName: 'wstprtradio.sid',
     cookie: {
-      // SameSite=lax is enough for the same-site /admin login flow and avoids
-      // the cross-site cookie footguns of `none`. The web app talks to the API
-      // from the same eTLD+1 once domains are aligned; if you split apex/api
-      // across different sites you'll need `sameSite: 'none'` + `secure: true`.
+      // vercel.app (web) and fly.dev (api) are different eTLD+1s, so
+      // SameSite=Lax would make the browser silently drop the cookie on
+      // every cross-origin fetch. SameSite=None requires Secure=true,
+      // which is already enforced in production (HTTPS only on Fly).
+      // In dev we stay on Lax (HTTP localhost, no Secure needed).
       httpOnly: true,
       secure: env.APP_ENV === 'production',
-      sameSite: 'lax',
+      sameSite: env.APP_ENV === 'production' ? 'none' : 'lax',
       maxAge: 1000 * 60 * 60 * 12,
     },
     saveUninitialized: false,
