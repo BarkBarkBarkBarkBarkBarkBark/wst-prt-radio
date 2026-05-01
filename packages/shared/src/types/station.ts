@@ -17,6 +17,12 @@ export interface StationStatus {
   updatedAt: string;
   /** Present when no live broadcaster; lets all clients seek to the same position */
   alwaysOnState?: AlwaysOnState;
+  /** True when the host has enabled guest co-broadcasters */
+  jamMode: boolean;
+  /** Number of currently connected guest co-broadcasters */
+  guestCount: number;
+  /** PeerIds of connected guests (visible to host for management) */
+  guestPeerIds: string[];
 }
 
 export interface BroadcasterStatus {

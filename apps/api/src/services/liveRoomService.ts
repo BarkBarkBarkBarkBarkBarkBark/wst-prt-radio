@@ -11,7 +11,9 @@ type SignalSocket = {
   OPEN: number;
 };
 
-type ConnectionRole = 'listener' | 'broadcaster';
+type ConnectionRole = 'listener' | 'broadcaster' | 'guest';
+
+const MAX_GUESTS = 4;
 
 interface ConnectionState {
   id: string;
@@ -34,6 +36,7 @@ interface StreamStateRow {
 const STATE_ROW_ID = 'primary';
 const connections = new Map<string, ConnectionState>();
 const peerIndex = new Map<string, string>();
+let jamMode = false;
 
 function db() {
   return getDb();
@@ -123,6 +126,16 @@ function countListeners(): number {
   return Array.from(connections.values()).filter((connection) => !connection.closed && connection.role === 'listener').length;
 }
 
+function countGuests(): number {
+  return Array.from(connections.values()).filter((c) => !c.closed && c.role === 'guest').length;
+}
+
+function getGuestPeerIds(): string[] {
+  return Array.from(connections.values())
+    .filter((c) => !c.closed && c.role === 'guest' && c.peerId != null)
+    .map((c) => c.peerId as string);
+}
+
 function endSession(sessionId: string | null, reason: string): void {
   if (!sessionId) return;
   db()
@@ -159,6 +172,9 @@ function toPublicStatus(state: StreamStateRow): StationStatus {
     broadcasterPeerId: broadcaster?.peerId ?? null,
     broadcasterDisplayName: broadcaster?.displayName ?? state.broadcaster_display_name ?? null,
     updatedAt: state.updated_at,
+    jamMode,
+    guestCount: countGuests(),
+    guestPeerIds: getGuestPeerIds(),
     ...(broadcaster ? {} : { alwaysOnState: getAlwaysOnState() }),
   };
 }
@@ -250,6 +266,17 @@ function disconnectBroadcaster(connection: ConnectionState, reason: string, next
     peerId: connection.peerId,
     reason,
   });
+
+  // Reset jam mode and kick all guests when broadcaster leaves
+  jamMode = false;
+  for (const [id, conn] of connections) {
+    if (!conn.closed && conn.role === 'guest') {
+      conn.closed = true;
+      connections.delete(id);
+      if (conn.peerId) peerIndex.delete(conn.peerId);
+      try { conn.socket.close(); } catch { /* ignore */ }
+    }
+  }
 }
 
 function disconnectConnection(connectionId: string, reason: string, closeSocket: boolean): void {
@@ -299,7 +326,8 @@ function relaySignal(
   }
 
   if (message.type === 'sdp_offer') {
-    sendMessage(target.socket, { type: 'peer_offer', fromPeerId: from.peerId, sdp: message.sdp });
+    const fromRole: 'listener' | 'guest' = from.role === 'guest' ? 'guest' : 'listener';
+    sendMessage(target.socket, { type: 'peer_offer', fromPeerId: from.peerId, sdp: message.sdp, fromRole });
     return;
   }
 
@@ -318,6 +346,38 @@ function acceptListener(connection: ConnectionState, peerId: string): void {
   connection.displayName = null;
   connection.sessionId = null;
   sendMessage(connection.socket, { type: 'listener_accepted' });
+  broadcastStatus();
+}
+
+function acceptGuest(connection: ConnectionState, peerId: string, displayName?: string): void {
+  const state = normalizeState();
+
+  if (state.station_state !== 'live' || !state.broadcaster_peer_id) {
+    sendMessage(connection.socket, { type: 'guest_rejected', reason: 'no live host' });
+    return;
+  }
+  if (!jamMode) {
+    sendMessage(connection.socket, { type: 'guest_rejected', reason: 'guests are not enabled right now' });
+    return;
+  }
+  if (isPeerBlocked(peerId)) {
+    sendMessage(connection.socket, { type: 'guest_rejected', reason: 'this browser is blocked' });
+    return;
+  }
+  if (countGuests() >= MAX_GUESTS) {
+    sendMessage(connection.socket, { type: 'guest_rejected', reason: `guest slots are full (max ${MAX_GUESTS})` });
+    return;
+  }
+
+  replaceExistingPeerConnection(peerId, connection.id);
+  const safeName = displayName?.trim().slice(0, 80) || null;
+  connection.peerId = peerId;
+  connection.role = 'guest';
+  connection.displayName = safeName;
+  connection.sessionId = null;
+
+  // Tell guest they're accepted and give them the host's peerId so they can offer
+  sendMessage(connection.socket, { type: 'guest_accepted', hostPeerId: state.broadcaster_peer_id });
   broadcastStatus();
 }
 
@@ -526,6 +586,32 @@ export function handleSignalMessage(connectionId: string, rawMessage: unknown): 
 
   if (message.type === 'join_as_broadcaster') {
     acceptBroadcaster(connection, message.peerId, message.displayName);
+    return;
+  }
+
+  if (message.type === 'join_as_guest') {
+    acceptGuest(connection, message.peerId, message.displayName);
+    return;
+  }
+
+  if (message.type === 'set_jam_mode') {
+    const state = readState();
+    if (connection.peerId && connection.peerId === state.broadcaster_peer_id) {
+      jamMode = message.enabled;
+      // If turning jam mode off, kick all current guests
+      if (!jamMode) {
+        for (const [id, conn] of connections) {
+          if (!conn.closed && conn.role === 'guest') {
+            sendMessage(conn.socket, { type: 'force_disconnect', reason: 'guest mode disabled by host' });
+            conn.closed = true;
+            connections.delete(id);
+            if (conn.peerId) peerIndex.delete(conn.peerId);
+            try { conn.socket.close(); } catch { /* ignore */ }
+          }
+        }
+      }
+      broadcastStatus();
+    }
     return;
   }
 

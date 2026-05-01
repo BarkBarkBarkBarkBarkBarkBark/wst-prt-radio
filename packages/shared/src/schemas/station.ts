@@ -10,6 +10,9 @@ export const StationStatusSchema = z.object({
   broadcasterPeerId: z.string().nullable(),
   broadcasterDisplayName: z.string().nullable(),
   updatedAt: z.string(),
+  jamMode: z.boolean().default(false),
+  guestCount: z.number().int().nonnegative().default(0),
+  guestPeerIds: z.array(z.string()).default([]),
 });
 
 export const BroadcasterStatusSchema = z.object({

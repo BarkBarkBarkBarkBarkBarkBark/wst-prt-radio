@@ -17,6 +17,8 @@ export interface SignalPeer {
 export type SignalClientMessage =
   | { type: 'join_as_listener'; peerId: string }
   | { type: 'join_as_broadcaster'; peerId: string; displayName?: string }
+  | { type: 'join_as_guest'; peerId: string; displayName?: string }
+  | { type: 'set_jam_mode'; peerId: string; enabled: boolean }
   | { type: 'sdp_offer'; peerId: string; targetPeerId: string; sdp: string }
   | { type: 'sdp_answer'; peerId: string; targetPeerId: string; sdp: string }
   | { type: 'ice_candidate'; peerId: string; targetPeerId: string; candidate: LiveRoomIceCandidate }
@@ -33,11 +35,16 @@ export type SignalServerMessage =
       broadcasterDisplayName: string | null;
       updatedAt: string;
       alwaysOnState?: AlwaysOnState;
+      jamMode: boolean;
+      guestCount: number;
+      guestPeerIds: string[];
     }
   | { type: 'broadcaster_accepted'; liveSessionId: string }
   | { type: 'broadcaster_rejected'; reason: string }
   | { type: 'listener_accepted' }
-  | { type: 'peer_offer'; fromPeerId: string; sdp: string }
+  | { type: 'guest_accepted'; hostPeerId: string }
+  | { type: 'guest_rejected'; reason: string }
+  | { type: 'peer_offer'; fromPeerId: string; sdp: string; fromRole: 'listener' | 'guest' }
   | { type: 'peer_answer'; fromPeerId: string; sdp: string }
   | { type: 'ice_candidate'; fromPeerId: string; candidate: LiveRoomIceCandidate }
   | { type: 'force_disconnect'; reason: string };
