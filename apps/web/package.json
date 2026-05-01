@@ -13,6 +13,7 @@
     "@wstprtradio/shared": "workspace:*",
     "next": "15.5.15",
     "react": "^18.3.1",
+    "react-audio-visualize": "^1.2.0",
     "react-dom": "^18.3.1"
   },
   "devDependencies": {

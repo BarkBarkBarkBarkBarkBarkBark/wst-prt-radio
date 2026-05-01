@@ -4,7 +4,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AlwaysOnPlaylist, SignalServerMessage, StationStatus } from '@wstprtradio/shared';
 import { API_BASE, getSignalUrl, apiFetch } from '@/lib/api';
 import { getOrCreatePeerId } from '@/lib/peerId';
-import { AudioMeters } from './AudioMeters';
+import { AudioVisualizer } from './AudioVisualizer';
+import { VolumeKnob } from './VolumeKnob';
+import { ChatPanel } from './ChatPanel';
 import { StatusBadge } from './StatusBadge';
 
 interface ListenClientProps {
@@ -40,6 +42,7 @@ export function ListenClient({
   const [peerId, setPeerId] = useState('');
   const [connected, setConnected] = useState(false);
   const [currentFallbackIndex, setCurrentFallbackIndex] = useState(0);
+  const [volume, setVolume] = useState(75); // 0–100; 0 = paused
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
@@ -303,58 +306,83 @@ export function ListenClient({
     void playFallbackTrack(nextIndex);
   }, [currentFallbackIndex, playFallbackTrack, playlist]);
 
+  // Volume knob: 0 = pause, >0 = set volume and ensure playing
+  const handleVolumeChange = useCallback((val: number) => {
+    setVolume(val);
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (val === 0) {
+      audio.pause();
+    } else {
+      audio.volume = val / 100;
+      if (audio.paused && (audio.src || audio.srcObject)) {
+        void audio.play().catch(() => {});
+      }
+      if (!enabled) setEnabled(true);
+    }
+  }, [audioRef, enabled]);
+
+  // Sync audio volume whenever it changes
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    audio.volume = volume / 100;
+  }, [audioRef, volume]);
+
   return (
-    <div className="space-y-6">
-      <div className="rounded-[2rem] border border-stone-300/70 bg-white/80 p-6 shadow-sm">
+    <div className="space-y-4">
+      {/* Header card */}
+      <div className="rounded-[2rem] border border-stone-300/70 bg-white/80 p-5 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="space-y-3">
+          <div className="space-y-2">
             <StatusBadge state={status?.stationState ?? 'open'} />
-            <h2 className={`${compact ? 'text-2xl' : 'text-3xl'} font-semibold text-ink`}>{title}</h2>
-            <p className="max-w-2xl text-sm leading-6 text-muted">
-              {subtitle}
-            </p>
+            <h2 className={`${compact ? 'text-xl' : 'text-2xl'} font-semibold text-ink`}>{title}</h2>
+            {!compact && (
+              <p className="max-w-2xl text-sm leading-6 text-muted">{subtitle}</p>
+            )}
           </div>
-          <button
-            type="button"
-            onClick={() => setEnabled(true)}
-            className="rounded-full border border-ink bg-ink px-6 py-3 text-sm font-semibold text-paper transition hover:border-accent-red hover:bg-accent-red"
-          >
-            {enabled ? 'On Air' : autoStart ? 'Wake Audio' : 'Listen'}
-          </button>
+          {!enabled && (
+            <button
+              type="button"
+              onClick={() => { setEnabled(true); setVolume(75); }}
+              className="rounded-full border border-ink bg-ink px-6 py-3 text-sm font-semibold text-paper transition hover:border-accent-red hover:bg-accent-red"
+            >
+              {autoStart ? 'Wake Audio' : 'Listen'}
+            </button>
+          )}
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[1.35fr_0.65fr]">
-        <div className="rounded-[2rem] border border-stone-300/70 bg-paper/90 p-6">
-          <audio ref={audioRef} controls className="w-full" onEnded={() => void handleTrackEnded()} />
-          <AudioMeters audioRef={audioRef} className="mt-4" />
-          <div className="mt-4 space-y-2 text-sm text-muted">
-            <p>{message}</p>
-            <p>
-              {status?.broadcasterPresent ? 'Broadcaster online.' : 'No broadcaster connected.'} {status ? `${status.listenerCount} listener${status.listenerCount === 1 ? '' : 's'}.` : ''}
-            </p>
-            <p>{connected ? 'Signal connected.' : 'Signal idle.'}</p>
-            <p>{playlist?.tracks.length ? `${playlist.tracks.length} always-on tracks from Fly.` : 'No always-on tracks loaded.'}</p>
+      {/* Main grid: visualizer+controls | chat */}
+      <div className="grid gap-4 lg:grid-cols-[1.4fr_0.6fr]">
+        {/* Left: player controls + visualizer */}
+        <div className="rounded-[2rem] border border-stone-300/70 bg-[#0e0e0e] p-5 space-y-4">
+          {/* Hidden audio element */}
+          <audio ref={audioRef} className="hidden" onEnded={() => void handleTrackEnded()} />
+
+          {/* Visualizer */}
+          <AudioVisualizer audioRef={audioRef} />
+
+          {/* Controls row: volume knob + status */}
+          <div className="flex items-end gap-6">
+            <VolumeKnob value={volume} onChange={handleVolumeChange} size={72} label="VOL" />
+            <div className="flex-1 space-y-1.5 font-mono text-[11px] text-white/35 leading-relaxed">
+              <p className="text-white/55">{message}</p>
+              <p>
+                {status?.broadcasterPresent ? '● live broadcast' : '○ always-on'}{' '}
+                · {status?.listenerCount ?? 0} listening
+              </p>
+              <p>{connected ? '▲ signal ok' : '▽ signal idle'}</p>
+              <p>{playlist?.tracks.length ? `${playlist.tracks.length} tracks loaded` : 'loading tracks…'}</p>
+            </div>
           </div>
         </div>
 
-        <div className="rounded-[2rem] border border-stone-300/70 bg-white/70 p-6 text-sm text-muted">
-          <h3 className="text-lg font-semibold text-ink">Station state</h3>
-          <dl className="mt-4 space-y-3">
-            <div>
-              <dt className="uppercase tracking-[0.24em] text-xs">Live session</dt>
-              <dd className="mt-1 text-ink">{status?.liveSessionId ?? 'Idle'}</dd>
-            </div>
-            <div>
-              <dt className="uppercase tracking-[0.24em] text-xs">Broadcaster</dt>
-              <dd className="mt-1 text-ink">{status?.broadcasterDisplayName ?? 'Nobody live'}</dd>
-            </div>
-            <div>
-              <dt className="uppercase tracking-[0.24em] text-xs">Listeners</dt>
-              <dd className="mt-1 text-ink">{status?.listenerCount ?? 0}</dd>
-            </div>
-          </dl>
-        </div>
+        {/* Right: chat panel */}
+        <ChatPanel
+          className="min-h-[300px]"
+          listenerCount={status?.listenerCount ?? 0}
+        />
       </div>
     </div>
   );
