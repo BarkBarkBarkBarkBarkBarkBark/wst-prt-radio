@@ -1,3 +1,8 @@
+---
+layout: default
+title: Local Network Streaming Guide — wstprtradio
+---
+
 # Local Network Streaming Guide — wstprtradio
 
 This is the shortest path to the thing that matters most right now: **send a stream from one device and hear it on another device on your local network**.

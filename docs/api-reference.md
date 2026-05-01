@@ -1,3 +1,8 @@
+---
+layout: default
+title: API Reference — wstprtradio
+---
+
 # API Reference — wstprtradio
 
 This repo uses a Fastify API in [apps/api](../apps/api) as the control plane for the station.

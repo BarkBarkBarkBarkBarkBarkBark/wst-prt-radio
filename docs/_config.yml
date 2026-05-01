@@ -1,0 +1,34 @@
+title: West Port Radio Docs
+description: Technical documentation for West Port Radio — a WebRTC pirate radio station.
+baseurl: ""
+url: ""
+
+# Theme — clean and readable
+theme: jekyll-theme-minimal
+
+# Navigation order for sidebar
+header_pages:
+  - index.md
+  - architecture.md
+  - api-reference.md
+  - web-dj-guide.md
+  - musician-guide.md
+  - obs-profile-guide.md
+  - butt-fallback-guide.md
+  - fly-vercel-deploy.md
+  - linux-machine-setup.md
+  - local-network-streaming.md
+  - dns-checklist.md
+  - icecast-fallback-guide.md
+
+# Markdown processor
+markdown: kramdown
+kramdown:
+  input: GFM
+  syntax_highlighter: rouge
+
+# Exclude files from the site output
+exclude:
+  - "*.sh"
+  - Gemfile
+  - Gemfile.lock

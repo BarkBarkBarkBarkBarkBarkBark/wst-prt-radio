@@ -1,3 +1,8 @@
+---
+layout: default
+title: DNS Checklist — wstprtradio
+---
+
 # DNS Checklist — wstprtradio
 
 Before launch, verify all DNS records are correctly configured.

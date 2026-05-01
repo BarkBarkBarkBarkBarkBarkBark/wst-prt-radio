@@ -1,3 +1,8 @@
+---
+layout: default
+title: Fly.io + Vercel Deploy Guide
+---
+
 # Fly.io + Vercel Deploy Guide
 
 This repo is set up to deploy as:

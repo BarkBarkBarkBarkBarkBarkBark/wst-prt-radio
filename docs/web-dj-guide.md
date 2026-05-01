@@ -1,3 +1,8 @@
+---
+layout: default
+title: Web DJ Guide — wstprtradio
+---
+
 # Web DJ Guide — wstprtradio
 
 The AzuraCast Web DJ allows you to broadcast directly from your browser — no extra software needed.

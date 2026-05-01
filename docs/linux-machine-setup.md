@@ -1,3 +1,8 @@
+---
+layout: default
+title: Linux Machine Setup — Generic Stream Host + Monorepo
+---
+
 # Linux Machine Setup — Generic Stream Host + Monorepo
 
 This guide is for the case where a Linux machine should host your stream backend and you will operate it over SSH.

@@ -1,3 +1,8 @@
+---
+layout: default
+title: OBS Profile Guide — wstprtradio
+---
+
 # OBS Profile Guide — wstprtradio
 
 Use OBS Studio to stream video + audio to wstprtradio for the live video experience.

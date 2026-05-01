@@ -1,3 +1,8 @@
+---
+layout: default
+title: Icecast Fallback Guide — wstprtradio
+---
+
 # Icecast Fallback Guide — wstprtradio
 
 AzuraCast is now treated as vestigial. The simplest supported path is a direct Icecast-compatible stream.

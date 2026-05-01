@@ -1,3 +1,8 @@
+---
+layout: default
+title: Musician Guide — wstprtradio
+---
+
 # Musician Guide — wstprtradio
 
 Welcome! This guide explains how to go live on wstprtradio as a musician or DJ.
