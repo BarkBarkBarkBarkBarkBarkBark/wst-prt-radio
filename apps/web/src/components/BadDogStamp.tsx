@@ -20,7 +20,7 @@ function PawIcon({ className }: { className?: string }) {
 export function BadDogStamp() {
   return (
     <div
-      className="fixed bottom-5 right-5 z-50 pointer-events-none select-none"
+      className="fixed bottom-[88px] right-4 z-50 pointer-events-none select-none"
       style={{ transform: 'rotate(-9deg)' }}
       aria-hidden="true"
     >

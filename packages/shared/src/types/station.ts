@@ -1,5 +1,12 @@
 export type StationState = 'closed' | 'open' | 'live' | 'blocked' | 'degraded';
 
+export interface AlwaysOnState {
+  /** Index into the playlist tracks array */
+  trackIndex: number;
+  /** Unix ms when this track started playing on the server */
+  startedAt: number;
+}
+
 export interface StationStatus {
   stationState: StationState;
   liveSessionId: string | null;
@@ -8,6 +15,8 @@ export interface StationStatus {
   broadcasterPeerId: string | null;
   broadcasterDisplayName: string | null;
   updatedAt: string;
+  /** Present when no live broadcaster; lets all clients seek to the same position */
+  alwaysOnState?: AlwaysOnState;
 }
 
 export interface BroadcasterStatus {
@@ -28,9 +37,14 @@ export interface AuditLogEntry {
 }
 
 export interface AdminStatus extends StationStatus {
-  blockedPeerCount: number;
+  broadcasterStatus: BroadcasterStatus | null;
+  listenerPeerIds: string[];
+  /** Detailed broadcaster info (alias for broadcasterStatus) */
   currentBroadcaster: BroadcasterStatus | null;
+  /** Recent admin audit log entries */
   recentAudit: AuditLogEntry[];
+  /** Number of currently blocked peers */
+  blockedPeerCount: number;
 }
 
 export interface AlwaysOnTrack {
@@ -43,8 +57,4 @@ export interface AlwaysOnTrack {
 
 export interface AlwaysOnPlaylist {
   tracks: AlwaysOnTrack[];
-}
-
-export interface AdminPasswordPayload {
-  password: string;
 }

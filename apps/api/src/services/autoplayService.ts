@@ -1,6 +1,7 @@
 import { createReadStream, existsSync, readdirSync } from 'node:fs';
 import { dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { AlwaysOnState } from '@wstprtradio/shared';
 
 export interface AlwaysOnTrack {
   id: string;
@@ -99,6 +100,41 @@ export function getAlwaysOnTrackFile(filename: string): { filePath: string; mime
   };
 }
 
-export function createAlwaysOnTrackStream(filePath: string) {
+// ─── Server-side always-on scheduler ────────────────────────────────────────
+// Tracks which playlist track is "now playing" and when it started.
+// All WebSocket listeners receive this state so they can seek to the same offset,
+// making the always-on stream feel like a real radio broadcast.
+
+interface SchedulerState {
+  trackIndex: number;
+  startedAt: number; // unix ms
+}
+
+let schedulerState: SchedulerState = {
+  trackIndex: 0,
+  startedAt: Date.now(),
+};
+
+export function getAlwaysOnState(): AlwaysOnState {
+  return {
+    trackIndex: schedulerState.trackIndex,
+    startedAt: schedulerState.startedAt,
+  };
+}
+
+/**
+ * Advance to the next track. Called when the server decides the current track
+ * has finished (driven by a client /public/autoplay/next signal or timeout).
+ */
+export function advanceAlwaysOnTrack(): void {
+  const playlist = getAlwaysOnPlaylist();
+  const len = playlist.tracks.length;
+  schedulerState = {
+    trackIndex: len > 0 ? (schedulerState.trackIndex + 1) % len : 0,
+    startedAt: Date.now(),
+  };
+}
+
+export function createAlwaysOnTrackStream(filePath: string): ReturnType<typeof createReadStream> {
   return createReadStream(filePath);
 }

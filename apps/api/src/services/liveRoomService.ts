@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { AdminStatus, AuditLogEntry, SignalClientMessage, SignalServerMessage, StationState, StationStatus } from '@wstprtradio/shared';
 import { getDb } from '../db/client.js';
 import { writeAudit } from '../lib/audit.js';
+import { getAlwaysOnState } from './autoplayService.js';
 
 type SignalSocket = {
   send: (data: string) => void;
@@ -152,6 +153,7 @@ function toPublicStatus(state: StreamStateRow): StationStatus {
     broadcasterPeerId: broadcaster?.peerId ?? null,
     broadcasterDisplayName: broadcaster?.displayName ?? state.broadcaster_display_name ?? null,
     updatedAt: state.updated_at,
+    ...(broadcaster ? {} : { alwaysOnState: getAlwaysOnState() }),
   };
 }
 
@@ -400,18 +402,24 @@ export function getAdminStatus(): AdminStatus {
         .get(state.live_session_id) as { startedAt: string } | undefined)?.startedAt ?? state.updated_at
     : state.updated_at;
 
+  const broadcasterStatus =
+    broadcaster && state.live_session_id
+      ? {
+          peerId: broadcaster.peerId ?? state.broadcaster_peer_id ?? '',
+          displayName: broadcaster.displayName,
+          sessionId: state.live_session_id,
+          startedAt,
+        }
+      : null;
+
   return {
     ...toPublicStatus(state),
     blockedPeerCount: countBlockedPeers(),
-    currentBroadcaster:
-      broadcaster && state.live_session_id
-        ? {
-            peerId: broadcaster.peerId ?? state.broadcaster_peer_id ?? '',
-            displayName: broadcaster.displayName,
-            sessionId: state.live_session_id,
-            startedAt,
-          }
-        : null,
+    broadcasterStatus,
+    currentBroadcaster: broadcasterStatus,
+    listenerPeerIds: Array.from(connections.values())
+      .filter((c) => !c.closed && c.role === 'listener' && c.peerId != null)
+      .map((c) => c.peerId as string),
     recentAudit: recentAudit(),
   };
 }
@@ -525,4 +533,12 @@ export function handleSignalMessage(connectionId: string, rawMessage: unknown): 
 
 export function handleSignalDisconnect(connectionId: string): void {
   disconnectConnection(connectionId, 'socket_closed', false);
+}
+
+/**
+ * Broadcast the updated always-on state to all connected listeners.
+ * Called after advanceAlwaysOnTrack() so every client switches tracks simultaneously.
+ */
+export function broadcastAlwaysOnAdvance(): void {
+  broadcastStatus();
 }

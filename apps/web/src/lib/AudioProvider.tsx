@@ -3,11 +3,14 @@
 /**
  * AudioProvider — global audio context for West Port Radio.
  *
- * Lifts all WebRTC / WebSocket / fallback-audio logic out of ListenClient so it
- * survives page navigation and feeds both the persistent PlayerBar and the
- * homepage vinyl's sound-reactive glow.
+ * All WebRTC / WebSocket / fallback-audio logic lives here so it survives
+ * page navigation and feeds the persistent PlayerBar and vinyl glow.
  *
- * Consumers: useAudio() hook.
+ * Always-on sync:
+ *   The server maintains a scheduler (trackIndex + startedAt timestamp).
+ *   Each station_status WS message includes alwaysOnState.  When we load a
+ *   track we seek to (Date.now() - startedAt) / 1000 seconds so every listener
+ *   hears the same moment in the same track — real radio behaviour.
  */
 
 import {
@@ -33,7 +36,6 @@ export interface AudioContextValue {
   volume: number;
   currentFallbackIndex: number;
   audioRef: React.RefObject<HTMLAudioElement | null>;
-  /** 0–1 RMS amplitude for sound-reactive UI elements */
   amplitude: number;
   setEnabled: (v: boolean) => void;
   handleVolumeChange: (v: number) => void;
@@ -84,7 +86,7 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
   const enabledRef        = useRef(false);
   const fallbackModeRef   = useRef(false);
 
-  // Web Audio
+  // Web Audio for amplitude polling
   const webAudioCtxRef  = useRef<AudioContext | null>(null);
   const analyserRef     = useRef<AnalyserNode | null>(null);
   const ampRafRef       = useRef<number | null>(null);
@@ -114,7 +116,7 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
       };
       ampRafRef.current = requestAnimationFrame(poll);
     } catch {
-      // AudioContext unavailable (SSR / restricted env)
+      // AudioContext unavailable
     }
   }, []);
 
@@ -157,18 +159,32 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
     audioRef.current.load();
   }, []);
 
+  /**
+   * Load a fallback track by index and seek to `seekSeconds` if provided.
+   * seekSeconds = (Date.now() - alwaysOnState.startedAt) / 1000 for sync.
+   */
   const playFallbackTrack = useCallback(
-    async (index: number) => {
+    async (index: number, seekSeconds = 0) => {
       if (!audioRef.current || !playlist?.tracks.length || !enabledRef.current) return;
       const norm  = index % playlist.tracks.length;
       const track = playlist.tracks[norm];
       if (!track) return;
-      fallbackModeRef.current       = true;
-      audioRef.current.srcObject    = null;
-      audioRef.current.src          = `${API_BASE}${track.url}`;
+      fallbackModeRef.current    = true;
+      audioRef.current.srcObject = null;
+      audioRef.current.src       = `${API_BASE}${track.url}`;
       audioRef.current.load();
+
+      // Seek after metadata is available
+      const audio = audioRef.current;
+      const applySeek = () => {
+        if (seekSeconds > 0 && audio.duration > seekSeconds) {
+          audio.currentTime = seekSeconds;
+        }
+      };
+      audio.addEventListener('loadedmetadata', applySeek, { once: true });
+
       try {
-        await audioRef.current.play();
+        await audio.play();
         setCurrentFallbackIndex(norm);
         setMessage(`Always-on: ${track.title}`);
       } catch {
@@ -178,18 +194,21 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
     [playlist],
   );
 
-  const ensureFallbackAudio = useCallback(async () => {
-    if (!playlist?.tracks.length) { setMessage('No tracks available yet.'); return; }
-    await playFallbackTrack(currentFallbackIndex);
-  }, [currentFallbackIndex, playFallbackTrack, playlist]);
+  const ensureFallbackAudio = useCallback(
+    async (trackIndex?: number, startedAt?: number) => {
+      if (!playlist?.tracks.length) { setMessage('No tracks available yet.'); return; }
+      const idx        = trackIndex ?? currentFallbackIndex;
+      const seekSecs   = startedAt ? Math.max(0, (Date.now() - startedAt) / 1000) : 0;
+      await playFallbackTrack(idx, seekSecs);
+    },
+    [currentFallbackIndex, playFallbackTrack, playlist],
+  );
 
   const sendJson = useCallback((payload: unknown) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
     wsRef.current.send(JSON.stringify(payload));
   }, []);
 
-  // Forward-declared so scheduleReconnect can reference connect
-  // eslint-disable-next-line prefer-const
   let connectRef: (() => void) | null = null;
 
   const scheduleReconnect = useCallback(() => {
@@ -255,26 +274,36 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
         setMessage('Connected. Waiting for a broadcaster…');
         return;
       }
+
       if (payload.type === 'station_status') {
         setStatus(payload);
+
         if (!payload.broadcasterPresent || !payload.broadcasterPeerId) {
           closePeer();
-          await ensureFallbackAudio();
+          // Use server's alwaysOnState so all clients are in sync
+          if (enabledRef.current) {
+            const aos = payload.alwaysOnState;
+            await ensureFallbackAudio(aos?.trackIndex, aos?.startedAt);
+          }
           return;
         }
+
         if (targetBroadRef.current !== payload.broadcasterPeerId) {
           await startPeerConnection(payload.broadcasterPeerId);
         }
         return;
       }
+
       if (payload.type === 'peer_answer' && peerRef.current) {
         await peerRef.current.setRemoteDescription({ type: 'answer', sdp: payload.sdp });
         return;
       }
+
       if (payload.type === 'ice_candidate' && peerRef.current) {
         await peerRef.current.addIceCandidate(payload.candidate);
         return;
       }
+
       if (payload.type === 'force_disconnect') {
         setMessage(payload.reason);
         closePeer();
@@ -310,7 +339,6 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
     ws.onerror = () => { setMessage('Signal link failed. Retrying…'); };
   }, [closePeer, handleServerMessage, peerId, scheduleReconnect, sendJson]);
 
-  // Wire connectRef so scheduleReconnect can call it
   connectRef = connect;
 
   useEffect(() => {
@@ -326,17 +354,27 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
       closePeer();
       stopFallbackAudio();
     };
-  }, [enabled, peerId]); // connect is stable once peerId is set
+  }, [enabled, peerId]); // intentionally minimal deps — connect is stable
 
   useEffect(() => {
     if (!enabled || !playlist?.tracks.length || status?.broadcasterPresent) return;
-    void ensureFallbackAudio();
-  }, [enabled, ensureFallbackAudio, playlist, status?.broadcasterPresent]);
+    const aos = status?.alwaysOnState;
+    void ensureFallbackAudio(aos?.trackIndex, aos?.startedAt);
+  }, [enabled, playlist, status?.broadcasterPresent]);
 
+  /**
+   * When a local track ends, tell the server to advance so all clients sync.
+   * The server broadcasts back a station_status with the new alwaysOnState.
+   */
   const handleTrackEnded = useCallback(() => {
-    if (!fallbackModeRef.current || !playlist?.tracks.length) return;
-    const next = (currentFallbackIndex + 1) % playlist.tracks.length;
-    void playFallbackTrack(next);
+    if (!fallbackModeRef.current) return;
+    void apiFetch('/public/autoplay/next', { method: 'POST' }).catch(() => {
+      // If the server call fails, just advance locally
+      if (playlist?.tracks.length) {
+        const next = (currentFallbackIndex + 1) % playlist.tracks.length;
+        void playFallbackTrack(next, 0);
+      }
+    });
   }, [currentFallbackIndex, playFallbackTrack, playlist]);
 
   const handleVolumeChange = useCallback(
@@ -363,16 +401,12 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
     audio.volume = volume / 100;
   }, [volume]);
 
-  // ── Cleanup on unmount ────────────────────────────────────────────────────
-
   useEffect(() => {
     return () => {
       if (ampRafRef.current !== null) cancelAnimationFrame(ampRafRef.current);
       webAudioCtxRef.current?.close().catch(() => {});
     };
   }, []);
-
-  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <AudioCtx.Provider
@@ -391,7 +425,6 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
         handleTrackEnded,
       }}
     >
-      {/* Hidden audio element — lives here so it never unmounts */}
       <audio ref={audioRef} className="hidden" onEnded={handleTrackEnded} />
       {children}
     </AudioCtx.Provider>
