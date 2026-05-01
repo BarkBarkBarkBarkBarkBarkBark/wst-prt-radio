@@ -20,11 +20,21 @@ export function getDb(): Database.Database {
 }
 
 function runMigrations(database: Database.Database): void {
+  // Apply base schema (CREATE TABLE IF NOT EXISTS — safe to re-run)
   const migrationSql = readFileSync(
     join(__dirname, 'migrations', '001_init.sql'),
     'utf8',
   );
   database.exec(migrationSql);
+
+  // Data migrations: rename actor_user_id -> actor if the old column exists
+  const auditCols: { name: string }[] = database
+    .prepare("PRAGMA table_info(audit_log)")
+    .all() as { name: string }[];
+  const hasOldCol = auditCols.some((c) => c.name === 'actor_user_id');
+  if (hasOldCol) {
+    database.exec('ALTER TABLE audit_log RENAME COLUMN actor_user_id TO actor');
+  }
 }
 
 function initializeCoreRows(database: Database.Database): void {
