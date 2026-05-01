@@ -16,6 +16,8 @@ This site documents the technical stack, deployment process, and operational gui
 | Guide | Description |
 |---|---|
 | [Stream Architecture](architecture) | How the whole system fits together — signal server, WebRTC, always-on jukebox |
+| [Operational Runbook](runbook) | How to deploy, debug, kick a bad DJ, and roll back |
+| [Claims audit](claims.yaml) | Every public claim the repo makes, checked against source |
 | [Web DJ Guide](web-dj-guide) | How to broadcast live from your browser |
 | [Musician Guide](musician-guide) | Submitting music for the always-on playlist |
 | [OBS Profile Guide](obs-profile-guide) | Broadcasting with OBS Studio |

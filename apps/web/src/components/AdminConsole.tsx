@@ -1,35 +1,114 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { AdminStatus } from '@wstprtradio/shared';
-import { apiFetch } from '@/lib/api';
+import { useRouter } from 'next/navigation';
+import type { AdminStatus, SignalServerMessage, StationStatus } from '@wstprtradio/shared';
+import { apiFetch, ApiError, getSignalUrl } from '@/lib/api';
 import { StatusBadge } from './StatusBadge';
 
 export function AdminConsole() {
+  const router = useRouter();
+  const [me, setMe] = useState<{ username: string } | null>(null);
   const [status, setStatus] = useState<AdminStatus | null>(null);
-  const [message, setMessage] = useState('Admin controls are open in local-first mode.');
+  const [message, setMessage] = useState('Loading admin console…');
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
+  const [wsConnected, setWsConnected] = useState(false);
 
-  const loadStatus = useCallback(async () => {
+  const loadStatus = useCallback(async (): Promise<boolean> => {
     try {
       const next = await apiFetch<AdminStatus>('/admin/status');
       setStatus(next);
       setMessage('Admin console connected.');
-    } catch {
+      return true;
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        router.replace('/admin/login');
+        return false;
+      }
       setMessage('Unable to reach the admin API.');
+      return false;
     }
-  }, []);
+  }, [router]);
 
+  // Auth gate — bounce to /admin/login if no session.
   useEffect(() => {
-    void loadStatus();
-    const interval = window.setInterval(() => {
-      void loadStatus();
-    }, 5_000);
-
+    let cancelled = false;
+    void apiFetch<{ username: string }>('/auth/me')
+      .then((u) => {
+        if (cancelled) return;
+        setMe(u);
+        void loadStatus();
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 401) {
+          router.replace('/admin/login');
+        } else {
+          setMessage('Unable to reach the auth API.');
+        }
+      });
     return () => {
-      window.clearInterval(interval);
+      cancelled = true;
     };
-  }, [loadStatus]);
+  }, [loadStatus, router]);
+
+  // Subscribe to /signal so the dashboard updates the moment state changes,
+  // instead of polling on a 5 s tick. Polling falls back in if the WS dies.
+  useEffect(() => {
+    if (!me) return undefined;
+    let ws: WebSocket | null = null;
+    let pollTimer: number | null = null;
+
+    const startPolling = () => {
+      if (pollTimer !== null) return;
+      pollTimer = window.setInterval(() => {
+        void loadStatus();
+      }, 5_000);
+    };
+    const stopPolling = () => {
+      if (pollTimer !== null) {
+        window.clearInterval(pollTimer);
+        pollTimer = null;
+      }
+    };
+
+    const connect = () => {
+      ws = new WebSocket(getSignalUrl());
+      ws.onopen = () => {
+        setWsConnected(true);
+        stopPolling();
+      };
+      ws.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data as string) as SignalServerMessage;
+          if (payload.type === 'station_status') {
+            // Merge the lightweight public status into our admin snapshot,
+            // then refresh the full admin payload (audit log, blocked count) lazily.
+            setStatus((prev) => (prev ? { ...prev, ...(payload as StationStatus) } : prev));
+            void loadStatus();
+          }
+        } catch {
+          // ignore malformed payloads
+        }
+      };
+      ws.onclose = () => {
+        setWsConnected(false);
+        startPolling();
+        // Auto-retry the WS shortly so we recover the live feed once the API
+        // comes back.
+        window.setTimeout(connect, 3_000);
+      };
+      ws.onerror = () => {
+        // onclose will run anyway; we'll fall back to polling there.
+      };
+    };
+
+    connect();
+    return () => {
+      stopPolling();
+      ws?.close();
+    };
+  }, [loadStatus, me]);
 
   const runAction = useCallback(
     async (path: string, label: string) => {
@@ -38,20 +117,39 @@ export function AdminConsole() {
         await apiFetch<{ ok: boolean; status: AdminStatus }>(path, { method: 'POST' });
         await loadStatus();
       } catch (error) {
+        if (error instanceof ApiError && error.status === 401) {
+          router.replace('/admin/login');
+          return;
+        }
         setMessage(error instanceof Error ? error.message : 'Action failed.');
       } finally {
         setLoadingAction(null);
       }
     },
-    [loadStatus],
+    [loadStatus, router],
   );
 
-  const streamLink = useMemo(() => {
-    if (typeof window === 'undefined') {
-      return '';
+  const logout = useCallback(async () => {
+    try {
+      await apiFetch<{ ok: boolean }>('/auth/logout', { method: 'POST' });
+    } catch {
+      // ignore — we redirect regardless
     }
+    router.replace('/admin/login');
+  }, [router]);
+
+  const streamLink = useMemo(() => {
+    if (typeof window === 'undefined') return '';
     return `${window.location.origin}/stream`;
   }, []);
+
+  if (!me) {
+    return (
+      <div className="rounded-[2rem] border border-stone-300/70 bg-white/80 p-6 text-sm text-muted">
+        Verifying session…
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -63,6 +161,22 @@ export function AdminConsole() {
             <p className="max-w-2xl text-sm leading-6 text-muted">
               Open, close, kick, block, and monitor the one-broadcaster WebRTC station from a single screen.
             </p>
+          </div>
+
+          <div className="flex items-center gap-3 text-xs uppercase tracking-[0.2em] text-muted">
+            <span className="rounded-full border border-stone-300 px-3 py-1.5 text-ink">
+              {me.username}
+            </span>
+            <span className={wsConnected ? 'text-emerald-600' : 'text-amber-600'}>
+              {wsConnected ? 'live feed' : 'polling'}
+            </span>
+            <button
+              type="button"
+              onClick={() => void logout()}
+              className="rounded-full border border-stone-300 px-3 py-1.5 text-ink transition hover:border-accent-red hover:text-accent-red"
+            >
+              Logout
+            </button>
           </div>
         </div>
       </div>

@@ -53,7 +53,7 @@ export function useAudio(): AudioContextValue {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const rtcConfig: RTCConfiguration = {
-  iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+  iceServers: [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }],
 };
 
 function serializeCandidate(c: RTCIceCandidate) {
@@ -80,11 +80,17 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
 
   const wsRef             = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
+  const peerRetryTimerRef = useRef<number | null>(null);
   const audioRef          = useRef<HTMLAudioElement | null>(null);
   const peerRef           = useRef<RTCPeerConnection | null>(null);
   const targetBroadRef    = useRef<string | null>(null);
   const enabledRef        = useRef(false);
   const fallbackModeRef   = useRef(false);
+  // ICE candidates that arrive before setRemoteDescription resolves are
+  // illegal to add and are silently dropped without buffering — that's the
+  // most common cause of "WebRTC handshake completes but no audio" failures.
+  const pendingIceRef     = useRef<RTCIceCandidateInit[]>([]);
+  const remoteDescSetRef  = useRef(false);
 
   // Web Audio for amplitude polling
   const webAudioCtxRef  = useRef<AudioContext | null>(null);
@@ -133,7 +139,7 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
   // ── Bootstrap ─────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    setPeerId(getOrCreatePeerId());
+    setPeerId(getOrCreatePeerId('listener'));
     void Promise.all([
       apiFetch<StationStatus>('/public/status').then(setStatus),
       apiFetch<AlwaysOnPlaylist>('/public/autoplay').then(setPlaylist),
@@ -148,6 +154,12 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
     peerRef.current?.close();
     peerRef.current        = null;
     targetBroadRef.current = null;
+    pendingIceRef.current  = [];
+    remoteDescSetRef.current = false;
+    if (peerRetryTimerRef.current !== null) {
+      window.clearTimeout(peerRetryTimerRef.current);
+      peerRetryTimerRef.current = null;
+    }
     if (audioRef.current) audioRef.current.srcObject = null;
   }, []);
 
@@ -219,6 +231,17 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
     }, 2_000);
   }, []);
 
+  const schedulePeerRetry = useCallback((broadcasterPeerId: string) => {
+    if (peerRetryTimerRef.current !== null) return;
+    peerRetryTimerRef.current = window.setTimeout(() => {
+      peerRetryTimerRef.current = null;
+      if (!enabledRef.current || targetBroadRef.current !== null) return;
+      void startPeerConnectionRef.current?.(broadcasterPeerId);
+    }, 2_000);
+  }, []);
+
+  const startPeerConnectionRef = useRef<((id: string) => Promise<void>) | null>(null);
+
   const startPeerConnection = useCallback(
     async (broadcasterPeerId: string) => {
       if (!peerId || !enabledRef.current) return;
@@ -256,6 +279,7 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
         if (peer.connectionState === 'failed' || peer.connectionState === 'disconnected') {
           setMessage('Connection dropped. Reconnecting…');
           closePeer();
+          schedulePeerRetry(broadcasterPeerId);
         }
       };
 
@@ -264,8 +288,10 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
       await peer.setLocalDescription(offer);
       sendJson({ type: 'sdp_offer', peerId, targetPeerId: broadcasterPeerId, sdp: offer.sdp ?? '' });
     },
-    [closePeer, ensureWebAudio, peerId, sendJson, stopFallbackAudio],
+    [closePeer, ensureWebAudio, peerId, schedulePeerRetry, sendJson, stopFallbackAudio],
   );
+
+  startPeerConnectionRef.current = startPeerConnection;
 
   const handleServerMessage = useCallback(
     async (payload: SignalServerMessage) => {
@@ -296,11 +322,23 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
 
       if (payload.type === 'peer_answer' && peerRef.current) {
         await peerRef.current.setRemoteDescription({ type: 'answer', sdp: payload.sdp });
+        remoteDescSetRef.current = true;
+        // Drain any ICE candidates that arrived before the answer landed —
+        // adding them earlier would have thrown InvalidStateError.
+        const queued = pendingIceRef.current;
+        pendingIceRef.current = [];
+        for (const c of queued) {
+          try { await peerRef.current.addIceCandidate(c); } catch { /* ignore stale */ }
+        }
         return;
       }
 
-      if (payload.type === 'ice_candidate' && peerRef.current) {
-        await peerRef.current.addIceCandidate(payload.candidate);
+      if (payload.type === 'ice_candidate') {
+        if (peerRef.current && remoteDescSetRef.current) {
+          try { await peerRef.current.addIceCandidate(payload.candidate); } catch { /* ignore stale */ }
+        } else {
+          pendingIceRef.current.push(payload.candidate);
+        }
         return;
       }
 
@@ -348,6 +386,10 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
       if (reconnectTimerRef.current !== null) {
         window.clearTimeout(reconnectTimerRef.current);
         reconnectTimerRef.current = null;
+      }
+      if (peerRetryTimerRef.current !== null) {
+        window.clearTimeout(peerRetryTimerRef.current);
+        peerRetryTimerRef.current = null;
       }
       sendJson({ type: 'leave', peerId });
       wsRef.current?.close();

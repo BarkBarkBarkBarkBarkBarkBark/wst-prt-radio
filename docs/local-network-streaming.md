@@ -136,8 +136,6 @@ The primary path is now a generic Icecast-compatible stream. For practical purpo
 2. confirm the listener URL plays directly in a browser
 3. use BUTT, OBS, Mixxx, or Liquidsoap as the encoder/source
 
-If you still want AzuraCast, treat it as a legacy optional layer.
-
 ## Step 4 — Start the monorepo
 
 Run the repo root dev command.
@@ -156,8 +154,8 @@ That means another device on the same network can hit your dev machine directly.
 
 1. install BUTT from [danielnoethen.de/butt](https://danielnoethen.de/butt/)
 2. configure the server as IceCast
-3. point it to the machine running AzuraCast
-4. use the source password from AzuraCast
+3. point it at the host running Icecast (see `pnpm local:install` / `local_deploy.yaml`)
+4. use the **source password** printed in the installer output or `local_deploy.env`
 5. start streaming
 
 ### Option B: Other encoders

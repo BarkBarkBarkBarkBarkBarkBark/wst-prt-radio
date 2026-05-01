@@ -6,8 +6,14 @@ import { getSignalUrl, apiFetch } from '@/lib/api';
 import { getOrCreatePeerId } from '@/lib/peerId';
 import { StatusBadge } from './StatusBadge';
 
+interface ListenerPeerEntry {
+  pc: RTCPeerConnection;
+  remoteDescSet: boolean;
+  pendingIce: RTCIceCandidateInit[];
+}
+
 const rtcConfig: RTCConfiguration = {
-  iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+  iceServers: [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }],
 };
 
 function serializeCandidate(candidate: RTCIceCandidate) {
@@ -30,10 +36,14 @@ export function StreamClient() {
   const wsRef = useRef<WebSocket | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const monitorRef = useRef<HTMLAudioElement | null>(null);
-  const peersRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+  const peersRef = useRef<Map<string, ListenerPeerEntry>>(new Map());
+  // Candidates that arrive before the corresponding peer_offer (common: the
+  // listener trickles ICE the moment setLocalDescription resolves, which races
+  // ahead of the relayed offer).
+  const earlyIceRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
 
   useEffect(() => {
-    setPeerId(getOrCreatePeerId());
+    setPeerId(getOrCreatePeerId('broadcaster'));
     void apiFetch<StationStatus>('/public/status').then(setStatus).catch(() => undefined);
   }, []);
 
@@ -45,10 +55,11 @@ export function StreamClient() {
   }, []);
 
   const stopAllPeers = useCallback(() => {
-    for (const peer of peersRef.current.values()) {
-      peer.close();
+    for (const entry of peersRef.current.values()) {
+      entry.pc.close();
     }
     peersRef.current.clear();
+    earlyIceRef.current.clear();
   }, []);
 
   const stopLocalStream = useCallback(() => {
@@ -78,13 +89,14 @@ export function StreamClient() {
         return;
       }
 
-      let peer = peersRef.current.get(fromPeerId);
-      if (!peer) {
-        peer = new RTCPeerConnection(rtcConfig);
+      let entry = peersRef.current.get(fromPeerId);
+      if (!entry) {
+        const pc = new RTCPeerConnection(rtcConfig);
+        entry = { pc, remoteDescSet: false, pendingIce: [] };
         for (const track of localStream.getTracks()) {
-          peer.addTrack(track, localStream);
+          pc.addTrack(track, localStream);
         }
-        peer.onicecandidate = (event) => {
+        pc.onicecandidate = (event) => {
           if (!event.candidate) return;
           sendJson({
             type: 'ice_candidate',
@@ -93,17 +105,33 @@ export function StreamClient() {
             candidate: serializeCandidate(event.candidate),
           });
         };
-        peer.onconnectionstatechange = () => {
-          if (peer?.connectionState === 'closed' || peer?.connectionState === 'failed' || peer?.connectionState === 'disconnected') {
+        pc.onconnectionstatechange = () => {
+          if (pc.connectionState === 'closed' || pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
             peersRef.current.delete(fromPeerId);
           }
         };
-        peersRef.current.set(fromPeerId, peer);
+        peersRef.current.set(fromPeerId, entry);
       }
 
-      await peer.setRemoteDescription({ type: 'offer', sdp });
-      const answer = await peer.createAnswer();
-      await peer.setLocalDescription(answer);
+      await entry.pc.setRemoteDescription({ type: 'offer', sdp });
+      entry.remoteDescSet = true;
+
+      // Drain anything that raced ahead of the offer (per-listener buffer
+      // populated by the ice_candidate branch in handleServerMessage) plus
+      // the per-peer pendingIce queue.
+      const early = earlyIceRef.current.get(fromPeerId) ?? [];
+      earlyIceRef.current.delete(fromPeerId);
+      for (const c of early) {
+        try { await entry.pc.addIceCandidate(c); } catch { /* ignore stale */ }
+      }
+      const queued = entry.pendingIce;
+      entry.pendingIce = [];
+      for (const c of queued) {
+        try { await entry.pc.addIceCandidate(c); } catch { /* ignore stale */ }
+      }
+
+      const answer = await entry.pc.createAnswer();
+      await entry.pc.setLocalDescription(answer);
       sendJson({ type: 'sdp_answer', peerId, targetPeerId: fromPeerId, sdp: answer.sdp ?? '' });
     },
     [peerId, sendJson],
@@ -141,9 +169,20 @@ export function StreamClient() {
       }
 
       if (payload.type === 'ice_candidate') {
-        const peer = peersRef.current.get(payload.fromPeerId);
-        if (peer) {
-          await peer.addIceCandidate(payload.candidate);
+        // ICE often beats the offer here because listeners trickle candidates
+        // the moment setLocalDescription resolves on their side. Buffer per
+        // remote peer id until the matching peer_offer arrives.
+        const entry = peersRef.current.get(payload.fromPeerId);
+        if (!entry) {
+          const list = earlyIceRef.current.get(payload.fromPeerId) ?? [];
+          list.push(payload.candidate);
+          earlyIceRef.current.set(payload.fromPeerId, list);
+          return;
+        }
+        if (entry.remoteDescSet) {
+          try { await entry.pc.addIceCandidate(payload.candidate); } catch { /* ignore stale */ }
+        } else {
+          entry.pendingIce.push(payload.candidate);
         }
         return;
       }

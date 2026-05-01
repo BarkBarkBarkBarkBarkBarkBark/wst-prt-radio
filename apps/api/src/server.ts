@@ -1,4 +1,6 @@
 import Fastify from 'fastify';
+import fastifyCookie from '@fastify/cookie';
+import fastifySession from '@fastify/session';
 import fastifySwagger from '@fastify/swagger';
 import fastifySwaggerUi from '@fastify/swagger-ui';
 import fastifyWebsocket from '@fastify/websocket';
@@ -6,6 +8,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { env } from './lib/env.js';
 import { loggerOptions } from './lib/logger.js';
+import { initializeAdmins } from './lib/admins.js';
 import corsPlugin from './plugins/cors.js';
 import rateLimitPlugin from './plugins/rateLimit.js';
 
@@ -13,6 +16,7 @@ import healthRoute from './routes/health.js';
 import autoplayRoute from './routes/public/autoplay.js';
 import statusRoute from './routes/public/status.js';
 import adminControlRoute from './routes/admin/control.js';
+import authRoute from './routes/auth/index.js';
 import signalRoute from './routes/signal.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -21,6 +25,11 @@ export async function buildServer() {
   const fastify = Fastify({
     logger: loggerOptions[env.APP_ENV] as Parameters<typeof Fastify>[0]['logger'],
     trustProxy: true,
+  });
+
+  await initializeAdmins({
+    info: (msg) => fastify.log.info(msg),
+    warn: (msg) => fastify.log.warn(msg),
   });
 
   await fastify.register(fastifySwagger, {
@@ -42,9 +51,28 @@ export async function buildServer() {
 
   await fastify.register(corsPlugin);
   await fastify.register(rateLimitPlugin);
+
+  await fastify.register(fastifyCookie);
+  await fastify.register(fastifySession, {
+    secret: env.SESSION_SECRET,
+    cookieName: 'wstprtradio.sid',
+    cookie: {
+      // SameSite=lax is enough for the same-site /admin login flow and avoids
+      // the cross-site cookie footguns of `none`. The web app talks to the API
+      // from the same eTLD+1 once domains are aligned; if you split apex/api
+      // across different sites you'll need `sameSite: 'none'` + `secure: true`.
+      httpOnly: true,
+      secure: env.APP_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 1000 * 60 * 60 * 12,
+    },
+    saveUninitialized: false,
+  });
+
   await fastify.register(fastifyWebsocket);
 
   await fastify.register(healthRoute);
+  await fastify.register(authRoute);
   await fastify.register(autoplayRoute);
   await fastify.register(statusRoute);
   await fastify.register(adminControlRoute);

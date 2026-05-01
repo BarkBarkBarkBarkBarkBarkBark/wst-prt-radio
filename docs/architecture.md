@@ -3,271 +3,279 @@ layout: default
 title: Stream Architecture
 ---
 
-# West Port Radio — Stream Architecture
+# Architecture
 
-> **Last updated:** 2026-05-01  
-> **Status:** Production (Fly.io API · Vercel Web)
+West Port Radio is a small-scale internet radio station with two listening modes:
 
----
+1. **Always-on jukebox** — when nobody is broadcasting live, every browser plays the same MP3 from the repo's `songs/` directory, seeked to the same offset so all listeners hear the same moment.
+2. **Live WebRTC broadcast** — exactly one user can "jack" the station from their browser at `/stream`, allow the mic, and become the broadcaster. The Fastify API relays SDP/ICE over a WebSocket; audio itself flows browser-to-browser.
 
-## Overview
-
-West Port Radio is a pirate-radio–style single-broadcaster WebRTC station.  
-One person broadcasts live at a time; everyone else listens. When no one is broadcasting, an always-on jukebox plays synchronized music for all connected listeners.
-
-```
-┌────────────────────────────────────────────────────────────────┐
-│  Browser (Vercel · wst-prt-radio.vercel.app)                   │
-│                                                                │
-│  AudioProvider (React context)                                 │
-│    ├─ WebSocket → /signal  (live signalling)                   │
-│    ├─ WebRTC   → broadcaster (live audio peer-to-peer)         │
-│    └─ <audio>  → /public/autoplay/files/:file (always-on)      │
-└────────────────────────────────────────────────────────────────┘
-                          │
-                          │ HTTPS / WSS
-                          ▼
-┌────────────────────────────────────────────────────────────────┐
-│  Fastify API (Fly.io · wst-prt-radio.fly.dev)                  │
-│  PORT 8080  ·  SQLite on /data (persistent Fly volume)         │
-│                                                                │
-│  Routes                                                        │
-│    GET  /health               → { status, station }           │
-│    GET  /public/status        → StationStatus                 │
-│    GET  /public/autoplay      → AlwaysOnPlaylist              │
-│    GET  /public/autoplay/files/:file → audio stream           │
-│    POST /public/autoplay/next → advance + broadcast AOS       │
-│    WS   /signal               → SignalServer (WS hub)         │
-│    GET  /admin/status         → AdminStatus  (auth required)  │
-│    POST /admin/*              → admin actions (auth required)  │
-└────────────────────────────────────────────────────────────────┘
-```
+The design is deliberately small: one Fastify process on Fly.io with a SQLite file on a persistent volume, plus a Next.js front-end on Vercel.
 
 ---
 
-## Packages
+## Components
 
-| Package | Location | Purpose |
+| Path | Role |
+|---|---|
+| `apps/web` | Next.js 15 App Router. Single global [`AudioProvider`](../apps/web/src/lib/AudioProvider.tsx) drives audio for every page. Persistent [`PlayerBar`](../apps/web/src/components/PlayerBar.tsx) survives navigation. `/stream` lets one user broadcast. `/admin` gates kick/block/open/close behind a cookie session. |
+| `apps/api` | Fastify 5. State machine in [`liveRoomService.ts`](../apps/api/src/services/liveRoomService.ts), playlist scheduler in [`autoplayService.ts`](../apps/api/src/services/autoplayService.ts), `/signal` WebSocket, REST endpoints, Swagger UI at `/docs`. |
+| `packages/shared` | TypeScript types + Zod schemas shared by web and api. Anything on the wire (`StationStatus`, `SignalClientMessage`, `SignalServerMessage`) lives here. |
+| `songs/` | The fallback playlist. Files are filtered by extension allowlist and a safe-name regex before being served. |
+| `infra/local/` | Optional Docker compose for an Icecast + Liquidsoap "classic" stream. Not required if you only use the in-repo autoplay + WebRTC. |
+| `fly.toml` | Canonical Fly.io config (single source of truth as of Phase 2). |
+
+---
+
+## High-level data flow
+
+```mermaid
+flowchart LR
+  subgraph browser [Browser]
+    AP[AudioProvider]
+    SC[StreamClient]
+    AC[AdminConsole]
+    PB[PlayerBar]
+  end
+  subgraph fly [Fly.io - Fastify]
+    SIG["WS /signal"]
+    STAT["GET /public/status"]
+    AP_API["GET /public/autoplay/*"]
+    ADM["/admin/* + /auth/*"]
+    DB[(SQLite)]
+    SCHED[autoplayService scheduler]
+  end
+  AP -- "join_as_listener" --> SIG
+  SC -- "join_as_broadcaster + SDP/ICE" --> SIG
+  SIG -- "peer_offer/answer/ice_candidate" --> AP
+  AP -. "WebRTC audio (peer-to-peer)" .-> SC
+  AP -- "GET playlist + GET file" --> AP_API
+  AP_API --> SCHED
+  STAT --> DB
+  ADM --> DB
+  AC -- "POST kick/block/open/close" --> ADM
+  ADM -- "force_disconnect" --> SIG
+```
+
+---
+
+## Station state machine
+
+The persistent column `stream_state.station_state` is the single source of truth. Values:
+
+| State | Meaning |
+|---|---|
+| `open` | No live broadcaster. Listeners hear the always-on jukebox. Anyone can `join_as_broadcaster`. |
+| `live` | A broadcaster is attached. Listeners attempt WebRTC; until handshake completes, they continue on the jukebox. |
+| `closed` | Admin has closed the station. New broadcasters are rejected with "stream is closed". |
+| `blocked` | Last broadcaster was blocked. Their peer id is in `blocked_peers`. New broadcasters may still try; they're rejected if their peer id is in the blocklist. |
+| `degraded` | Reserved for future use (e.g. the `songs/` directory is missing). Currently never set. |
+
+```mermaid
+stateDiagram-v2
+  [*] --> open
+  open --> live: join_as_broadcaster
+  live --> open: broadcaster leaves / kick
+  live --> blocked: block
+  live --> closed: admin close
+  open --> closed: admin close
+  blocked --> open: clear-blocks (and no broadcaster)
+  closed --> open: admin open
+```
+
+Recovery rules in [`liveRoomService.ts`](../apps/api/src/services/liveRoomService.ts):
+
+- `initializeStationService()` runs on boot. If the DB shows `live` from a previous run, the session is marked `ended` and state flips to `open`.
+- `normalizeState()` runs before every read. If the broadcaster's WebSocket is gone, the broadcaster_peer_id is cleared regardless of the current state (Phase 2 broadened this from the previous `live`-only behavior).
+
+---
+
+## Signaling protocol
+
+WebSocket `/signal` is the only socket. Message shapes are defined as discriminated unions in [`packages/shared/src/types/liveRoom.ts`](../packages/shared/src/types/liveRoom.ts):
+
+- Client → server: `join_as_listener`, `join_as_broadcaster`, `sdp_offer`, `sdp_answer`, `ice_candidate`, `leave`.
+- Server → client: `station_status`, `listener_accepted`, `broadcaster_accepted`, `broadcaster_rejected`, `peer_offer`, `peer_answer`, `ice_candidate`, `force_disconnect`.
+
+### Listener handshake
+
+```mermaid
+sequenceDiagram
+  participant L as Listener
+  participant API as Fastify /signal
+  participant B as Broadcaster
+  L->>API: WS connect
+  API-->>L: station_status (alwaysOnState)
+  L->>API: join_as_listener {peerId}
+  API-->>L: listener_accepted
+  Note over L: plays jukebox until broadcaster shows up
+  API-->>L: station_status (broadcasterPresent=true, broadcasterPeerId)
+  L->>API: sdp_offer (target=broadcaster)
+  API->>B: peer_offer (from=listener)
+  B->>API: sdp_answer (target=listener)
+  API->>L: peer_answer
+  par ICE trickle (either direction; buffered if it races SDP)
+    L->>API: ice_candidate
+    API->>B: ice_candidate
+  and
+    B->>API: ice_candidate
+    API->>L: ice_candidate
+  end
+  Note over L,B: WebRTC peer connection is established<br/>audio flows browser-to-browser, not through Fly
+```
+
+ICE candidates that arrive before the matching SDP are illegal to add. Both ends buffer them:
+
+- Listener side ([`AudioProvider.tsx`](../apps/web/src/lib/AudioProvider.tsx)) — `pendingIceRef[]` drained after `setRemoteDescription`.
+- Broadcaster side ([`StreamClient.tsx`](../apps/web/src/components/StreamClient.tsx)) — per-listener `earlyIceRef` plus per-peer `entry.pendingIce` drained after the offer arrives.
+
+### Bad-payload tolerance
+
+A single malformed JSON or a relay against a peer that has just disappeared must never tear down the WebSocket. `parseMessage()` returns null on bad JSON; `relaySignal()` errors are swallowed in `handleSignalMessage`. The client recovers via the next `station_status`.
+
+---
+
+## Persistence boundaries
+
+What survives a restart vs what doesn't:
+
+| Data | Storage | Survives restart? |
 |---|---|---|
-| `@wstprtradio/shared` | `packages/shared` | Shared TypeScript types; must be built before other packages |
-| `@wstprtradio/web` | `apps/web` | Next.js 15 App Router front-end |
-| `@wstprtradio/api` | `apps/api` | Fastify signal server + REST API |
+| `stream_state` (current state, broadcaster id, session id) | SQLite | yes (Fly volume) |
+| `sessions` (broadcaster session log) | SQLite | yes |
+| `blocked_peers` | SQLite | yes |
+| `audit_log` (admin actions) | SQLite | yes (trimmed to last 1000 hourly — Phase 4) |
+| Connected WebSocket sockets | RAM | no |
+| `RTCPeerConnection` instances | RAM (browser) | no |
+| Always-on scheduler `{trackIndex, startedAt}` | RAM (`autoplayService.ts` module-level) | **no — known limitation, see claims.yaml#always-on-restart-resets** |
+| Listener peer id | `localStorage` (browser) | yes |
+| Chat messages | `sessionStorage` (browser) | no — single-tab, ephemeral |
 
 ---
 
-## Signal Server (`/signal` WebSocket)
+## Deployment topology
 
-All real-time coordination goes through a single persistent WebSocket endpoint.
+| Surface | Host | Trigger | Config |
+|---|---|---|---|
+| Web | Vercel | **Automatic** on push to `main` (project root: `apps/web`) | [`apps/web/vercel.json`](../apps/web/vercel.json), [`next.config.js`](../apps/web/next.config.js) |
+| API | Fly.io | **Manual** via `fly deploy` from `wst-prt-radio/` | [`fly.toml`](../fly.toml), [`apps/api/Dockerfile`](../apps/api/Dockerfile) |
 
-### Connection lifecycle
+Fly machines run `min_machines_running = 1, auto_stop_machines = false` so WebRTC sessions don't die under cold start. The SQLite file lives on a Fly volume mounted at `/data`.
 
-1. Client opens `wss://wst-prt-radio.fly.dev/signal`
-2. Client sends `join_as_listener` **or** `join_as_broadcaster` with its `peerId`
-3. Server registers the connection and immediately sends a `station_status` message
-4. Server broadcasts `station_status` to **all** connected clients on any state change
+Required env / secrets in production:
 
-### Client → Server messages (`SignalClientMessage`)
+- `APP_ENV=production`
+- `PORT=3001`
+- `SQLITE_DB_PATH=/data/wstprtradio.db`
+- `STATION_NAME=West Port Radio`
+- `CORS_ALLOWED_ORIGINS=https://your-vercel-app.vercel.app[,https://wstprtradio.com]`
+- `SESSION_SECRET=<random 32-byte hex>` — required in prod (Phase 3)
+- `ADMIN_USERS=marco:<password>,mun:<password>` — required in prod (Phase 3)
 
-| Type | Payload | Description |
-|---|---|---|
-| `join_as_listener` | `{ peerId }` | Register as a passive listener |
-| `join_as_broadcaster` | `{ peerId, displayName? }` | Claim the broadcaster slot |
-| `sdp_offer` | `{ peerId, targetPeerId, sdp }` | WebRTC offer relay |
-| `sdp_answer` | `{ peerId, targetPeerId, sdp }` | WebRTC answer relay |
-| `ice_candidate` | `{ peerId, targetPeerId, candidate }` | ICE relay |
-| `leave` | `{ peerId }` | Graceful disconnect |
+Vercel-side env (front-end):
 
-### Server → Client messages (`SignalServerMessage`)
-
-| Type | Payload | Description |
-|---|---|---|
-| `station_status` | `StationStatus` + `alwaysOnState?` | Broadcast on every state change |
-| `broadcaster_accepted` | `{ liveSessionId }` | Sent to the new broadcaster |
-| `broadcaster_rejected` | `{ reason }` | Station closed / blocked / full |
-| `listener_accepted` | — | Sent to confirmed listeners |
-| `peer_offer` | `{ fromPeerId, sdp }` | Relayed WebRTC offer |
-| `peer_answer` | `{ fromPeerId, sdp }` | Relayed WebRTC answer |
-| `ice_candidate` | `{ fromPeerId, candidate }` | Relayed ICE candidate |
-| `force_disconnect` | `{ reason }` | Kick / block |
+- `NEXT_PUBLIC_API_BASE_URL=https://<your-fly-app>.fly.dev`
+- `NEXT_PUBLIC_PUBLIC_SITE_URL=https://<your-vercel-app>.vercel.app`
 
 ---
 
-## Station State Machine
+## Authentication (Phase 3)
 
-Stored in SQLite table `stream_state` (single row `id = 'primary'`).
+| Surface | Auth |
+|---|---|
+| `GET /health` | none |
+| `GET /ready` | none (cheap DB ping) |
+| `GET /public/*`, `WS /signal` | none |
+| `POST /auth/login`, `POST /auth/logout`, `GET /auth/me` | none for login itself; `/auth/me` returns 401 when no session |
+| `GET /admin/*`, `POST /admin/*` | requires cookie session (set by `/auth/login`) |
 
-```
-         admin: open_station
-  ┌──────────────────────────┐
-  │                          │
-  ▼                          │
-OPEN  ──broadcaster joins──► LIVE ──broadcaster leaves──► OPEN
-  │                                                         ▲
-  │ admin: close_station                                    │
-  ▼                                                         │
-CLOSED                                                       │
-  │                                                         │
-  │ admin: open_station ─────────────────────────────────────┘
-  │
-  ▼
-BLOCKED  (station blocked by admin, all connections rejected)
-```
-
-`normalizeState()` runs on every status read: if the DB says `live` but no broadcaster is connected in-memory, it automatically transitions to `open` and ends the dangling session.
+Sessions are server-side, signed cookies via `@fastify/cookie` + `@fastify/session`. Passwords are hashed in memory at boot from `ADMIN_USERS` (format: `username:password,username:password`). The default seed `marco:barkbark,mun:woofwoof` only applies in development; production must supply `ADMIN_USERS` via Fly secrets.
 
 ---
 
-## Always-On Jukebox
+## Observability
 
-When no broadcaster is live, listeners hear a synchronized jukebox.
-
-### Server side (`autoplayService.ts`)
-
-- Scans `songs/` directory on the Fly volume for audio files (`.mp3`, `.ogg`, `.m4a`, `.flac`, `.wav`)
-- Maintains in-memory `schedulerState: { trackIndex, startedAt: unixMs }`
-- `getAlwaysOnState()` exposes the current index + timestamp
-- `advanceAlwaysOnTrack()` moves to the next track and resets `startedAt`
-- State is **in-memory** — resets to track 0 on server restart
-
-### Client side (`AudioProvider.tsx`)
-
-- On `station_status` WS message: receives `alwaysOnState = { trackIndex, startedAt }`
-- Computes `seekSecs = (Date.now() - startedAt) / 1000`
-- Seeks the `<audio>` element to that offset on `loadedmetadata`
-- All listeners are therefore synchronized to within ~1 s of each other
-- When a track ends, client POSTs `POST /public/autoplay/next` — server advances its scheduler and broadcasts the new state to every connected listener via WS
+- `GET /health` — cheap liveness, no DB. Used by Fly `[[http_service.checks]]`.
+- `GET /ready` — readiness, runs `SELECT 1` and returns the public station status.
+- Fastify Pino logs — pretty in dev, JSON in prod.
+- `audit_log` table — every admin action with actor (real username from cookie session) + entity + JSON payload. Trimmed to the last 1000 entries hourly (Phase 4).
 
 ---
 
-## Audio Flow
+## Scaling ceiling
 
-### Live broadcast
+The broadcaster forms a full mesh: one `RTCPeerConnection` per listener, with the broadcaster uplinking the same Opus stream to every peer. Practical ceiling on a residential connection is ~10–20 listeners before the broadcaster's upload saturates. Beyond that the upgrade path is an SFU (mediasoup, LiveKit, Cloudflare Calls); the Fastify signaling layer would need to become an SFU client.
 
-```
-Broadcaster mic
-  └─► getUserMedia()
-       └─► RTCPeerConnection (offer/answer via /signal WS)
-            └─► Listener's <audio> element (direct P2P)
-```
-
-### Always-on fallback
-
-```
-Fly volume (songs/)
-  └─► GET /public/autoplay/files/:filename  (HTTP audio stream)
-       └─► <audio> element (seeked to synchronized offset)
-```
+The `/signal` WebSocket itself is single-process and in-memory. With one Fly machine that's fine; horizontal scale would require a shared state store (Redis pub/sub) and broadcaster-affinity routing.
 
 ---
 
-## Shared Types (`@wstprtradio/shared`)
+## Future DB schema (Postgres / Supabase target)
 
-Key interfaces in `packages/shared/src/types/`:
+The current SQLite schema is intentionally small. When the station moves to a hosted Postgres (likely Supabase) for chat history + a real song catalog, today's tables (`stream_state`, `sessions`, `blocked_peers`, `audit_log`) port 1-to-1. New tables sketched here for forward compatibility:
 
-```ts
-// station.ts
-interface StationStatus {
-  stationState: 'closed' | 'open' | 'live' | 'blocked' | 'degraded';
-  liveSessionId: string | null;
-  listenerCount: number;
-  broadcasterPresent: boolean;
-  broadcasterPeerId: string | null;
-  broadcasterDisplayName: string | null;
-  updatedAt: string;
-  alwaysOnState?: AlwaysOnState;   // present when no broadcaster
-}
+```sql
+CREATE TABLE users (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  username        text UNIQUE NOT NULL,
+  display_name    text,
+  role            text NOT NULL CHECK (role IN ('admin', 'listener')),
+  password_hash   text,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
 
-interface AlwaysOnState {
-  trackIndex: number;   // index into AlwaysOnPlaylist.tracks
-  startedAt: number;    // unix ms when this track started
-}
+CREATE TABLE chat_messages (
+  id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id              uuid REFERENCES users(id),
+  anon_handle          text,
+  peer_id              text,
+  body                 text NOT NULL,
+  created_at           timestamptz NOT NULL DEFAULT now(),
+  deleted_at           timestamptz,
+  deleted_by_user_id   uuid REFERENCES users(id)
+);
 
-interface AdminStatus extends StationStatus {
-  broadcasterStatus: BroadcasterStatus | null;
-  currentBroadcaster: BroadcasterStatus | null;
-  listenerPeerIds: string[];
-  recentAudit: AuditLogEntry[];
-  blockedPeerCount: number;
-}
+CREATE TABLE songs (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  filename      text UNIQUE NOT NULL,
+  sha256        text UNIQUE NOT NULL,
+  title         text,
+  artist        text,
+  album         text,
+  duration_ms   integer,
+  mime_type     text NOT NULL,
+  path          text NOT NULL,
+  added_at      timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE play_history (
+  id                      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  song_id                 uuid REFERENCES songs(id),
+  broadcaster_peer_id     text,
+  started_at              timestamptz NOT NULL,
+  ended_at                timestamptz
+);
 ```
 
-> **Important:** Whenever `packages/shared/src` types change, run `pnpm --filter @wstprtradio/shared build` before building other packages.
+Migration plan when we move:
+
+1. Stand up Supabase / Postgres.
+2. Replace `apps/api/src/db/client.ts` with a `pg` (or `postgres-js`) client; keep the same query shapes.
+3. Run a one-time export of `audit_log` and `sessions` from SQLite into Postgres for history.
+4. The admin user list moves from `ADMIN_USERS` env into the `users` table; the auth path swaps from "verify against in-memory hash map" to "verify against `users.password_hash`".
+
+Until then, chat is browser-local (`sessionStorage` in [`ChatPanel.tsx`](../apps/web/src/components/ChatPanel.tsx)) and the song catalog is "whatever's in `songs/` at deploy time."
 
 ---
 
-## Deployment
+## Where to look first
 
-### Web (Vercel)
-
-- Auto-deploys on push to `main`
-- Environment variables set in Vercel dashboard (see `infra/vercel/ENV_DOCS.md`)
-- `NEXT_PUBLIC_API_URL` must point to the Fly API (`https://wst-prt-radio.fly.dev`)
-
-### API (Fly.io)
-
-```bash
-# From workspace root:
-fly deploy --config apps/api/fly.toml --dockerfile apps/api/Dockerfile --remote-only
-```
-
-Config file: [`apps/api/fly.toml`](../apps/api/fly.toml)
-
-Key env vars (set in `fly.toml [env]` or via `fly secrets set`):
-
-| Variable | Value | Description |
-|---|---|---|
-| `PORT` | `8080` | Must match `http_service.internal_port` in fly.toml |
-| `APP_ENV` | `production` | |
-| `SQLITE_DB_PATH` | `/data/wstprtradio.db` | Fly persistent volume |
-| `ADMIN_KEY` | _(secret)_ | Bearer token for `/admin/*` routes |
-| `CORS_ALLOWED_ORIGINS` | `https://wst-prt-radio.vercel.app` | |
-
----
-
-## Troubleshooting
-
-| Symptom | Likely cause | Fix |
-|---|---|---|
-| Stream page shows CLOSED / can't connect | API not responding (503) | Check `fly status --app wst-prt-radio` and logs |
-| API 503 "not listening on 0.0.0.0:8080" | `PORT` env mismatch | Ensure `PORT=8080` in `fly.toml [env]` |
-| Start button spins forever | WS connection to `/signal` failing | Check browser network tab for WS handshake errors |
-| Admin shows OPEN but stream shows CLOSED | Initial HTTP fetch to `/public/status` failed | Check API health at `/health` |
-| Always-on tracks out of sync | Server restarted (in-memory state reset) | Client will re-sync on next `station_status` WS message |
-| Songs not playing | `songs/` dir empty on Fly volume | SSH into machine and add audio files |
-
----
-
-## File Map (for AI agents)
-
-```
-apps/
-  api/
-    src/
-      index.ts                  ← Fastify bootstrap, port binding
-      server.ts                 ← Plugin registration
-      lib/
-        env.ts                  ← Zod env validation (PORT, SQLITE_DB_PATH, …)
-      services/
-        liveRoomService.ts      ← WebSocket hub, state machine, broadcaster/listener logic
-        autoplayService.ts      ← Always-on jukebox scheduler
-      routes/
-        health.ts               ← GET /health
-        signal.ts               ← WS /signal
-        public/
-          autoplay.ts           ← GET+POST /public/autoplay/*
-  web/
-    src/
-      lib/
-        AudioProvider.tsx       ← Global audio context (WS + WebRTC + fallback audio)
-        api.ts                  ← apiFetch(), getSignalUrl()
-      components/
-        PlayerBar.tsx           ← Fixed bottom player UI
-        StreamClient.tsx        ← Broadcaster page UI
-        AdminConsole.tsx        ← Admin dashboard
-packages/
-  shared/
-    src/
-      types/
-        station.ts              ← StationStatus, AdminStatus, AlwaysOnState
-        liveRoom.ts             ← SignalClientMessage, SignalServerMessage
-```
+- **Signal server** — [`apps/api/src/services/liveRoomService.ts`](../apps/api/src/services/liveRoomService.ts)
+- **Always-on scheduler** — [`apps/api/src/services/autoplayService.ts`](../apps/api/src/services/autoplayService.ts)
+- **Listener audio engine** — [`apps/web/src/lib/AudioProvider.tsx`](../apps/web/src/lib/AudioProvider.tsx)
+- **Broadcaster UI** — [`apps/web/src/components/StreamClient.tsx`](../apps/web/src/components/StreamClient.tsx)
+- **Admin UI** — [`apps/web/src/components/AdminConsole.tsx`](../apps/web/src/components/AdminConsole.tsx)
+- **Shared wire types** — [`packages/shared/src/types/`](../packages/shared/src/types/)
+- **OpenAPI** — [`apps/api/openapi.yaml`](../apps/api/openapi.yaml)
+- **Operational runbook** — [`docs/runbook.md`](runbook.md)
+- **Truth audit** — [`docs/claims.yaml`](claims.yaml)

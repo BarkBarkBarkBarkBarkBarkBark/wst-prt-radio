@@ -25,7 +25,6 @@ function RadioTowerIcon({ className }: { className?: string }) {
 
 const NAV_ITEMS = [
   { label: 'Home', href: '/' },
-  { label: 'Listen', href: '/listen' },
   { label: 'Stream', href: '/stream' },
   { label: 'Admin', href: '/admin' },
 ];

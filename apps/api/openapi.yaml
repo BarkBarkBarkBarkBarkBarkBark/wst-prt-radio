@@ -1,489 +1,177 @@
 openapi: 3.1.0
 info:
-  title: wstprtradio API
-  version: 0.0.1
+  title: West Port Radio API
+  version: 1.0.0
   description: |
-    Fastify control-plane API for West Port Radio.
+    Fastify control plane: always-on jukebox streaming, station status, WebRTC
+    signaling WebSocket (`/signal`), and open admin controls for local-first ops.
 
-    This specification is intentionally concise and human-maintained during the
-    early build-out stage. It covers the endpoints needed for local deployment,
-    operator troubleshooting, and future GitHub-hosted docs.
 servers:
   - url: http://localhost:3001
-    description: Local API
-  - url: https://api.wstprtradio.com
-    description: Production API
+    description: Local
 tags:
   - name: Health
   - name: Public
   - name: Auth
   - name: Admin
-  - name: Webhooks
-components:
-  securitySchemes:
-    sessionCookie:
-      type: apiKey
-      in: cookie
-      name: sessionId
-  schemas:
-    Error:
-      type: object
-      properties:
-        error:
-          type: string
-        message:
-          type: string
-      required: [error]
-    LoginRequest:
-      type: object
-      properties:
-        email:
-          type: string
-          format: email
-        password:
-          type: string
-      required: [email, password]
-    LoginResponse:
-      type: object
-      properties:
-        ok:
-          type: boolean
-        user:
-          type: object
-          properties:
-            id:
-              type: string
-            email:
-              type: string
-              format: email
-            role:
-              type: string
-          required: [id, email, role]
-      required: [ok, user]
-    NowPlaying:
-      type: object
-      properties:
-        title:
-          type: string
-        artist:
-          type: string
-        album:
-          type: string
-          nullable: true
-        artUrl:
-          type: string
-          nullable: true
-        listenersCount:
-          type: integer
-        isLive:
-          type: boolean
-        streamUrl:
-          type: string
-      required: [title, artist, listenersCount, isLive, streamUrl]
-    LiveSession:
-      type: object
-      nullable: true
-      properties:
-        id:
-          type: string
-        mode:
-          type: string
-          enum: [live_audio, live_video]
-        title:
-          type: string
-        status:
-          type: string
-          enum: [pending, active, ended]
-        startedAt:
-          type: string
-          nullable: true
-    StationStatus:
-      type: object
-      properties:
-        mode:
-          type: string
-          enum: [autodj, live_audio, live_video, degraded]
-        nowPlaying:
-          allOf:
-            - $ref: '#/components/schemas/NowPlaying'
-          nullable: true
-        liveSession:
-          $ref: '#/components/schemas/LiveSession'
-      required: [mode, liveSession]
-    Destination:
-      type: object
-      properties:
-        id:
-          type: string
-        kind:
-          type: string
-        name:
-          type: string
-        enabled:
-          type: boolean
-        url:
-          type: string
-        sortOrder:
-          type: integer
-        createdAt:
-          type: string
-        updatedAt:
-          type: string
-      required: [id, kind, name, enabled, url, sortOrder, createdAt, updatedAt]
-    DestinationCreate:
-      type: object
-      properties:
-        kind:
-          type: string
-          enum: [twitch, instagram, custom_rtmp, custom_srt, tiktok_experimental, discord_notify]
-        name:
-          type: string
-        enabled:
-          type: boolean
-        url:
-          type: string
-        streamKey:
-          type: string
-        srtPassphrase:
-          type: string
-        sortOrder:
-          type: integer
-      required: [kind, name, url]
-    Settings:
-      type: object
-      nullable: true
-      properties:
-        id:
-          type: string
-        stationName:
-          type: string
-        azuracastBaseUrl:
-          type: string
-        azuracastPublicStreamUrl:
-          type: string
-        azuracastPublicApiUrl:
-          type: string
-        cloudflareAccountId:
-          type: string
-        cloudflareLiveInputId:
-          type: string
-        defaultStreamMode:
-          type: string
-          enum: [autodj, live_audio, live_video]
-        createdAt:
-          type: string
-        updatedAt:
-          type: string
-    SettingsPatch:
-      type: object
-      properties:
-        stationName:
-          type: string
-        azuracastBaseUrl:
-          type: string
-        azuracastPublicStreamUrl:
-          type: string
-        azuracastPublicApiUrl:
-          type: string
-        azuracastApiKey:
-          type: string
-        cloudflareAccountId:
-          type: string
-        cloudflareLiveInputId:
-          type: string
-        cloudflareApiToken:
-          type: string
-        defaultStreamMode:
-          type: string
-          enum: [autodj, live_audio, live_video]
+
 paths:
   /health:
     get:
       tags: [Health]
-      summary: Health check
+      summary: Cheap liveness check (no DB access)
       responses:
         '200':
-          description: API is reachable.
+          description: '{ status: "ok", timestamp }'
+
+  /ready:
+    get:
+      tags: [Health]
+      summary: Readiness probe — pings SQLite and returns station status
+      responses:
+        '200':
+          description: '{ status: "ready", timestamp, station }'
+        '503':
+          description: '{ status: "unready", reason }'
+
   /public/status:
     get:
       tags: [Public]
-      summary: Current derived station mode
+      summary: Station status (listeners, broadcaster slot, optional always-on sync)
       responses:
         '200':
-          description: Current mode plus now playing and live session data.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StationStatus'
-  /public/now-playing:
+          description: JSON StationStatus from `@wstprtradio/shared`
+
+  /public/autoplay:
     get:
       tags: [Public]
-      summary: Current now-playing payload from AzuraCast
+      summary: Playlist manifest for always-on fallback audio
       responses:
         '200':
-          description: Current now-playing metadata.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/NowPlaying'
-        '503':
-          description: AzuraCast polling has not produced data yet.
-  /public/live-session:
+          description: AlwaysOnPlaylist JSON
+
+  /public/autoplay/files/{filename}:
     get:
       tags: [Public]
-      summary: Active live video session if any
+      summary: Stream one jukebox audio file
+      parameters:
+        - name: filename
+          in: path
+          required: true
+          schema:
+            type: string
       responses:
         '200':
-          description: Active session or null.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/LiveSession'
+          description: Audio bytes (Content-Type set per file)
+        '404':
+          description: Unknown file
+
+  /public/autoplay/next:
+    post:
+      tags: [Public]
+      summary: Advance jukebox scheduler (broadcasts new state over `/signal`)
+      responses:
+        '200':
+          description: Always-on scheduler state JSON
+
   /auth/login:
     post:
       tags: [Auth]
-      summary: Create an admin session
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/LoginRequest'
-      responses:
-        '200':
-          description: Session created.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/LoginResponse'
-        '400':
-          description: Invalid request body.
-        '401':
-          description: Invalid credentials.
-  /auth/logout:
-    post:
-      tags: [Auth]
-      summary: Destroy the current admin session
-      security:
-        - sessionCookie: []
-      responses:
-        '200':
-          description: Session cleared.
-  /admin/me:
-    get:
-      tags: [Admin]
-      summary: Current authenticated admin
-      security:
-        - sessionCookie: []
-      responses:
-        '200':
-          description: Current admin user.
-        '401':
-          description: Missing or invalid session.
-  /admin/dashboard:
-    get:
-      tags: [Admin]
-      summary: Dashboard aggregate payload
-      security:
-        - sessionCookie: []
-      responses:
-        '200':
-          description: Mode, now playing, destination count, and recent audit events.
-  /admin/station/status:
-    get:
-      tags: [Admin]
-      summary: Detailed upstream station status
-      security:
-        - sessionCookie: []
-      responses:
-        '200':
-          description: Current mode plus AzuraCast and Cloudflare connection flags.
-  /admin/live/audio/open-web-dj-link:
-    post:
-      tags: [Admin]
-      summary: Generate the AzuraCast Web DJ URL
-      security:
-        - sessionCookie: []
-      responses:
-        '200':
-          description: URL for browser-based DJ access.
-  /admin/live/video/session:
-    post:
-      tags: [Admin]
-      summary: Create a live video session record
-      security:
-        - sessionCookie: []
+      summary: Sign in with username and password (sets session cookie)
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
+              required: [username, password]
               properties:
-                title:
-                  type: string
-                description:
-                  type: string
-              required: [title]
+                username: { type: string }
+                password: { type: string }
       responses:
-        '201':
-          description: Session created in pending state.
+        '200':
+          description: '{ ok: true, username }'
         '400':
-          description: Invalid body.
-  /admin/live/video/end:
+          description: Invalid payload
+        '401':
+          description: Invalid username or password
+
+  /auth/logout:
     post:
-      tags: [Admin]
-      summary: End the latest pending or active live video session
-      security:
-        - sessionCookie: []
+      tags: [Auth]
+      summary: Destroy the current session
       responses:
         '200':
-          description: Session closed.
-        '404':
-          description: No session available to close.
-  /admin/destinations:
+          description: '{ ok: true }'
+
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Return the current admin session (or 401)
+      responses:
+        '200':
+          description: '{ username }'
+        '401':
+          description: Unauthorized
+
+  /admin/status:
     get:
       tags: [Admin]
-      summary: List fanout destinations
-      security:
-        - sessionCookie: []
+      summary: Extended station status (requires admin session)
       responses:
         '200':
-          description: Destination list.
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Destination'
+          description: AdminStatus JSON
+        '401':
+          description: Unauthorized
+
+  /admin/open:
     post:
       tags: [Admin]
-      summary: Create a destination
-      security:
-        - sessionCookie: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/DestinationCreate'
-      responses:
-        '201':
-          description: Destination created.
-        '400':
-          description: Invalid body.
-  /admin/destinations/{id}:
-    patch:
-      tags: [Admin]
-      summary: Update a destination
-      security:
-        - sessionCookie: []
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/DestinationCreate'
+      summary: Set station open for broadcasters
       responses:
         '200':
-          description: Destination updated.
-        '404':
-          description: Destination not found.
-    delete:
-      tags: [Admin]
-      summary: Delete a destination
-      security:
-        - sessionCookie: []
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Destination deleted.
-        '404':
-          description: Destination not found.
-  /admin/destinations/{id}/test:
+          description: `{ ok, status }`
+
+  /admin/close:
     post:
       tags: [Admin]
-      summary: Test destination connectivity via Cloudflare output creation
-      security:
-        - sessionCookie: []
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema:
-            type: string
+      summary: Close station (disconnect broadcaster)
       responses:
         '200':
-          description: Connectivity test result.
-        '404':
-          description: Destination not found.
-  /admin/settings:
+          description: `{ ok, status }`
+
+  /admin/kick:
+    post:
+      tags: [Admin]
+      summary: Kick active broadcaster
+      responses:
+        '200':
+          description: `{ ok, status }`
+
+  /admin/block:
+    post:
+      tags: [Admin]
+      summary: Block current broadcaster peer
+      responses:
+        '200':
+          description: `{ ok, status }`
+
+  /admin/clear-blocks:
+    post:
+      tags: [Admin]
+      summary: Clear blocked peers list
+      responses:
+        '200':
+          description: `{ ok, status }`
+
+  /signal:
     get:
-      tags: [Admin]
-      summary: Read station settings
-      security:
-        - sessionCookie: []
+      tags: [Public]
+      summary: WebSocket — WebRTC signaling + `station_status` fanout
+      description: |
+        Browser upgrade to WebSocket. Message shapes are defined in
+        `packages/shared/src/types/liveRoom.ts` (`SignalClientMessage`,
+        `SignalServerMessage`).
       responses:
-        '200':
-          description: Settings row or null.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Settings'
-    patch:
-      tags: [Admin]
-      summary: Create or update station settings
-      security:
-        - sessionCookie: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/SettingsPatch'
-      responses:
-        '200':
-          description: Settings updated.
-  /admin/audit:
-    get:
-      tags: [Admin]
-      summary: Paginated audit log
-      security:
-        - sessionCookie: []
-      parameters:
-        - in: query
-          name: limit
-          schema:
-            type: integer
-        - in: query
-          name: offset
-          schema:
-            type: integer
-      responses:
-        '200':
-          description: Audit rows and total count.
-  /webhooks/cloudflare-stream:
-    post:
-      tags: [Webhooks]
-      summary: Receive Cloudflare Stream live input events
-      responses:
-        '200':
-          description: Event accepted.
-  /webhooks/azuracast:
-    post:
-      tags: [Webhooks]
-      summary: Receive AzuraCast station events
-      responses:
-        '200':
-          description: Event accepted.
+        '101':
+          description: Switching Protocols

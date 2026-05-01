@@ -1,0 +1,407 @@
+# West Port Radio — claims audit
+#
+# Every public claim made by the repo's README, manifest, openapi spec, and docs,
+# checked against the actual source. Verdict legend:
+#   verified — code matches the claim
+#   partial  — claim is true in some path but not all, or true with caveats
+#   false    — claim contradicts the source
+#   todo     — claim describes future work that isn't implemented yet
+#
+# When verdict is partial/false/todo, `action` describes the follow-up.
+# This file doubles as a regression checklist: re-verify each entry after edits.
+
+spec_version: "1.0"
+station: "West Port Radio"
+audited_at: "2026-05-01"
+
+claims:
+
+  # ─── Topology / stack ─────────────────────────────────────────────────────
+
+  - id: stack-monorepo
+    source: README.md
+    claim: "pnpm monorepo with apps/web (Next.js) + apps/api (Fastify) + packages/shared"
+    verdict: verified
+    evidence:
+      - pnpm-workspace.yaml
+      - apps/web/package.json (next 15.5.15)
+      - apps/api/package.json (fastify ^5.8.5)
+      - packages/shared/package.json
+    action: ~
+
+  - id: stack-sqlite
+    source: manifest.yaml
+    claim: "SQLite via better-sqlite3, persistent volume on Fly"
+    verdict: verified
+    evidence:
+      - apps/api/src/db/client.ts uses better-sqlite3 with WAL mode
+      - fly.toml mounts volume `data` at `/data`, env SQLITE_DB_PATH=/data/wstprtradio.db
+    action: ~
+
+  - id: stack-station-modes
+    source: packages/shared/src/types/station.ts
+    claim: "stationState ∈ {closed, open, live, blocked, degraded}"
+    verdict: partial
+    evidence:
+      - SQLite CHECK constraint accepts all 5 values
+      - liveRoomService.ts only ever sets {open, live, blocked, closed} — `degraded` is reachable from no code path
+    action: "Either wire `degraded` (e.g. when the autoplay scheduler's songs/ dir is missing) or drop it from the enum."
+
+  # ─── Listener experience ──────────────────────────────────────────────────
+
+  - id: always-on-fallback
+    source: README.md
+    claim: "Listeners hear synchronized fallback tracks when nobody is live"
+    verdict: verified
+    evidence:
+      - autoplayService.ts maintains {trackIndex, startedAt}
+      - AudioProvider.tsx seeks to (Date.now() - startedAt)/1000 on every track load
+      - station_status payload includes alwaysOnState only when broadcasterPresent === false
+    action: ~
+
+  - id: always-on-sync-listen-route
+    source: docs/index.md (Listen guide)
+    claim: "All listener pages stay in sync with the always-on scheduler"
+    verdict: partial
+    evidence:
+      - AudioProvider (used at `/`) honors alwaysOnState.startedAt
+      - components/ListenClient.tsx (used at `/listen`) calls playFallbackTrack(index) without seekSeconds — `/listen` will drift from `/`
+    action: "Phase 2 deletes /listen + ListenClient.tsx (it's a duplicate of AudioProvider)."
+
+  - id: always-on-restart-resets
+    source: implicit ("synchronized always-on jukebox")
+    claim: "Always-on scheduler survives restarts"
+    verdict: false
+    evidence:
+      - autoplayService.ts schedulerState is a top-level `let` — module reload resets trackIndex=0 + startedAt=Date.now()
+    action: "Persist {trackIndex, startedAt} in stream_state (or a new scheduler_state row) so restarts don't yank listeners back to track 0."
+
+  - id: persistent-player-bar
+    source: components/PlayerBar.tsx + apps/web/src/app/layout.tsx
+    claim: "PlayerBar persists across page navigation via global AudioProvider"
+    verdict: verified
+    evidence:
+      - layout.tsx wraps children in <AudioProvider> with PlayerBar mounted at root
+      - useAudio() context survives client-side navigation
+    action: ~
+
+  # ─── Broadcaster experience ───────────────────────────────────────────────
+
+  - id: single-broadcaster
+    source: README.md, components/StreamClient.tsx
+    claim: "One broadcaster at a time"
+    verdict: verified
+    evidence:
+      - acceptBroadcaster() rejects with 'someone is already live' when state.broadcaster_peer_id is set and != peerId
+    action: ~
+
+  - id: broadcaster-can-jack
+    source: user requirement ("always jackable")
+    claim: "Anyone can grab the slot when no broadcaster is live"
+    verdict: verified
+    evidence:
+      - acceptBroadcaster() admits any peerId when broadcaster_peer_id is null and station is `open`
+    action: ~
+
+  - id: webrtc-ice-buffer
+    source: comments in AudioProvider.tsx and StreamClient.tsx
+    claim: "ICE candidates that arrive before SDP are buffered, not dropped"
+    verdict: verified
+    evidence:
+      - AudioProvider.tsx pendingIceRef + remoteDescSetRef drain after setRemoteDescription
+      - StreamClient.tsx earlyIceRef per-peer + entry.pendingIce drain after setRemoteDescription
+    action: ~
+
+  - id: webrtc-mesh-scaling
+    source: README.md ("public Google STUN baked in")
+    claim: "WebRTC scales to many listeners"
+    verdict: partial
+    evidence:
+      - StreamClient.tsx creates one RTCPeerConnection per listener (full star mesh from broadcaster)
+      - browser upload bandwidth caps practical listener count at ~10–20 over residential connections
+    action: "Document the ceiling in architecture.md; SFU (mediasoup, LiveKit, Cloudflare Calls) is the upgrade path."
+
+  # ─── Server-side state machine ────────────────────────────────────────────
+
+  - id: server-restart-recovery
+    source: liveRoomService.ts comments
+    claim: "Server restart recovers cleanly without leaving stale broadcaster state"
+    verdict: partial
+    evidence:
+      - initializeStationService() flips `live` → `open` and ends the stale session
+      - normalizeState() only clears stale broadcaster_peer_id when station_state === 'live'
+      - A `closed` or `blocked` state with a stranded broadcaster_peer_id never gets cleared
+    action: "Phase 2 broadens normalizeState() to clear stranded broadcaster_peer_id for any state where the peer's socket is gone."
+
+  - id: kick-disconnects
+    source: openapi.yaml (`/admin/kick`)
+    claim: "Admin kick disconnects the active broadcaster"
+    verdict: verified
+    evidence:
+      - kickBroadcaster() sends force_disconnect, calls disconnectConnection, audits the action
+    action: ~
+
+  - id: block-persists
+    source: openapi.yaml (`/admin/block`)
+    claim: "Block prevents the offending peer from going live again"
+    verdict: verified
+    evidence:
+      - blockBroadcaster() inserts into blocked_peers, sets state to `blocked`
+      - acceptBroadcaster() checks isPeerBlocked() and rejects with 'this browser is blocked'
+    action: ~
+
+  - id: clear-blocks
+    source: openapi.yaml (`/admin/clear-blocks`)
+    claim: "Admin can wipe the blocklist and reopen the station"
+    verdict: verified
+    evidence:
+      - clearBlockedPeers() truncates blocked_peers and flips back to `open` if state was `blocked` and no broadcaster
+    action: ~
+
+  - id: audit-records-actions
+    source: openapi.yaml (Admin tag)
+    claim: "Admin actions are recorded in audit_log"
+    verdict: partial
+    evidence:
+      - writeAudit() called from open/close/kick/block/clear-blocks paths
+      - audit_log table has no retention policy — grows unbounded
+      - actor is always literal `'admin'` (Phase 3 will use real usernames)
+    action: "Phase 4 trims audit_log to last 1000 entries hourly. Phase 3 sets actor to logged-in username."
+
+  # ─── Authentication / authorization ──────────────────────────────────────
+
+  - id: admin-open-in-local-first
+    source: openapi.yaml ("Extended station status (open auth in local-first mode)")
+    claim: "Admin endpoints are unauthenticated in local-first mode"
+    verdict: verified
+    evidence:
+      - apps/api/src/routes/admin/control.ts has no preHandler
+      - apps/api/src/server.ts does not register session/cookie plugins (despite deps being installed)
+    action: "Phase 3 adds cookie-session auth gated by ADMIN_USERS env (default seed: marco:barkbark,mun:woofwoof)."
+
+  - id: admin-future-auth
+    source: apps/api/.env.example (\"Admin routes are currently open in local-first mode.\")
+    claim: "Admin auth is planned"
+    verdict: todo
+    evidence:
+      - @fastify/cookie + @fastify/session + argon2 listed in apps/api/package.json but never registered
+      - Empty Next.js route at apps/web/src/app/admin/login (no page.tsx)
+    action: "Phase 3 lands cookie-session auth + login page."
+
+  # ─── HTTP / API surface ──────────────────────────────────────────────────
+
+  - id: openapi-served
+    source: server.ts
+    claim: "Swagger UI is served at /docs from apps/api/openapi.yaml"
+    verdict: verified
+    evidence:
+      - server.ts registers fastifySwagger (mode: static, path: openapi.yaml) + fastifySwaggerUi (routePrefix: /docs)
+    action: ~
+
+  - id: health-endpoint
+    source: docs/api-reference.md
+    claim: "GET /health returns liveness"
+    verdict: partial
+    evidence:
+      - routes/health.ts returns {status, timestamp, station: getPublicStationStatus()}
+      - Calling getPublicStationStatus() touches SQLite — not a true cheap liveness probe
+    action: "Phase 2 splits /health (no DB) from /ready (DB ping)."
+
+  - id: rate-limit-global
+    source: plugins/rateLimit.ts
+    claim: "Global API rate limit of 200 req/min/IP"
+    verdict: verified
+    evidence:
+      - rateLimitPlugin registers fastifyRateLimit with max:200, timeWindow:'1 minute'
+      - routes/public/status.ts overrides to 120/min
+    action: "Phase 4 adds tighter limits for /admin/* (post-auth) and /auth/login."
+
+  - id: cors-config
+    source: plugins/cors.ts
+    claim: "CORS allowlist is set via CORS_ALLOWED_ORIGINS"
+    verdict: partial
+    evidence:
+      - Production: comma-separated allowlist with sane defaults to wstprtradio.com
+      - Development: blanket-allows any localhost / *.local / 10.* / 192.168.* / 172.16-31.* origin
+    action: "Phase 2 gates dev LAN-allowance behind explicit CORS_DEV_LAN=true so APP_ENV=development never accidentally opens up production."
+
+  # ─── Signaling / WebSocket ────────────────────────────────────────────────
+
+  - id: signal-websocket
+    source: README.md ("WebSocket signaling at /signal")
+    claim: "WebSocket /signal relays SDP/ICE and broadcasts station_status"
+    verdict: verified
+    evidence:
+      - routes/signal.ts registers GET /signal with @fastify/websocket
+      - liveRoomService.ts handles join_as_listener / join_as_broadcaster / sdp_offer / sdp_answer / ice_candidate / leave
+    action: ~
+
+  - id: signal-bad-payload-tolerance
+    source: liveRoomService.ts comment ("Never let a single bad signal payload tear down the whole socket loop")
+    claim: "Bad payloads are dropped without dropping the WebSocket"
+    verdict: verified
+    evidence:
+      - parseMessage() returns null on bad JSON
+      - relaySignal() errors are swallowed in handleSignalMessage
+    action: ~
+
+  - id: signal-status-broadcast
+    source: liveRoomService.ts
+    claim: "All connected sockets receive station_status updates"
+    verdict: verified
+    evidence:
+      - broadcastStatus() iterates connections.values() and sends to each open socket on every state change
+    action: ~
+
+  # ─── Always-on / playlist ─────────────────────────────────────────────────
+
+  - id: playlist-from-songs-dir
+    source: services/autoplayService.ts
+    claim: "Playlist is auto-derived from the repo's songs/ directory"
+    verdict: verified
+    evidence:
+      - SONGS_DIR resolves to <repo>/songs
+      - canServeFile() filters by extension allowlist + safe-name regex
+    action: ~
+
+  - id: playlist-mime-extensions
+    source: services/autoplayService.ts
+    claim: "Supports .mp3, .ogg, .oga, .wav, .flac, .m4a"
+    verdict: verified
+    evidence:
+      - MIME_BY_EXTENSION map contains all six extensions
+      - EXTENSION_PRIORITY prefers MP3 when the same basename has multiple encodings
+    action: ~
+
+  # ─── Deployment ──────────────────────────────────────────────────────────
+
+  - id: deploy-vercel-auto
+    source: docs/fly-vercel-deploy.md, user requirement
+    claim: "Vercel auto-deploys apps/web on push"
+    verdict: verified
+    evidence:
+      - apps/web/vercel.json sets installCommand + buildCommand for the monorepo
+      - Vercel project root is apps/web (per docs)
+    action: ~
+
+  - id: deploy-fly-manual
+    source: user requirement
+    claim: "Fly deploy is manual"
+    verdict: verified
+    evidence:
+      - No GitHub Action under .github/workflows/ runs `fly deploy`
+      - Only docs.yml builds GitHub Pages
+    action: ~
+
+  - id: fly-config-canonical
+    source: README.md ("From repo root, fly deploy")
+    claim: "There is one canonical fly.toml"
+    verdict: false
+    evidence:
+      - wst-prt-radio/fly.toml (app=wst-prt-radio, region=iad, port=3001)
+      - apps/api/fly.toml (app=wst-prt-radio, region=ams, port=8080, malformed `app = 'node …'` inside [env])
+      - infra/fly/fly.toml (app=wstprtradio-api, region=iad, port=3001, has http_checks)
+    action: "Phase 2 keeps wst-prt-radio/fly.toml and deletes the other two; ports http_checks over from infra/fly/fly.toml."
+
+  - id: fly-volume-mount
+    source: docs/fly-vercel-deploy.md
+    claim: "SQLite lives on a Fly volume mounted at /data"
+    verdict: verified
+    evidence:
+      - wst-prt-radio/fly.toml mount source=`data` destination=`/data`
+      - SQLITE_DB_PATH=/data/wstprtradio.db
+    action: ~
+
+  - id: fly-secrets-script
+    source: scripts/set-fly-env.sh
+    claim: "set-fly-env.sh sets all required production secrets"
+    verdict: partial
+    evidence:
+      - Script sets APP_ENV, SQLITE_DB_PATH, CORS_ALLOWED_ORIGINS, STATION_NAME
+      - Phase 3 adds ADMIN_USERS + SESSION_SECRET requirements which the script doesn't yet pass through
+    action: "Phase 3 updates set-fly-env.sh to handle ADMIN_USERS and SESSION_SECRET."
+
+  - id: webrtc-stun-only
+    source: README.md ("public Google STUN is baked into the web bundle")
+    claim: "Browser STUN is sufficient; no TURN required server-side"
+    verdict: partial
+    evidence:
+      - rtcConfig in AudioProvider.tsx + StreamClient.tsx points only at stun.l.google.com
+      - Listeners on cellular / strict NAT may fail to negotiate without TURN
+    action: "Document TURN as a future client-only addition in architecture.md + runbook."
+
+  # ─── Chat ────────────────────────────────────────────────────────────────
+
+  - id: chat-session-local
+    source: components/ChatPanel.tsx
+    claim: "Chat exists on the home page"
+    verdict: partial
+    evidence:
+      - ChatPanel.tsx renders + accepts messages
+      - Storage is sessionStorage, single tab, no server fan-out — messages are not seen by other listeners
+      - Includes 5 hard-coded SEED_MSGS so it never appears empty
+    action: "Phase 5 specs a server-side chat_messages table (Postgres/Supabase) so listeners actually share a feed; not implemented in this pass."
+
+  # ─── Repo hygiene ────────────────────────────────────────────────────────
+
+  - id: env-not-tracked
+    source: .gitignore
+    claim: "Per-app .env files are not committed"
+    verdict: verified
+    evidence:
+      - `git ls-files | grep env` shows only *.example files (apps/api/.env.example, apps/web/.env.local.example, .env.example, local_deploy.env.example)
+      - apps/api/.env exists locally but is not tracked
+    action: ~
+
+  - id: db-files-tracked
+    source: .gitignore says "*.db, *.sqlite, *.sqlite3 ignored"
+    claim: "DB files are not committed"
+    verdict: false
+    evidence:
+      - `git ls-files` includes apps/api/data/wstprtradio.db-shm, apps/api/data/wstprtradio.db-wal, apps/api/dev.db-shm, apps/api/dev.db-wal
+      - .gitignore filters *.db but NOT *.db-shm / *.db-wal
+    action: "Phase 2 widens .gitignore to *.db-shm/*.db-wal and runs `git rm --cached` on the leftover WAL/SHM files."
+
+  - id: dead-destination-schema
+    source: packages/shared/src/schemas/destination.ts
+    claim: "Twitch / RTMP / Discord destinations are supported"
+    verdict: false
+    evidence:
+      - DestinationSchema, CreateDestinationSchema, UpdateDestinationSchema are exported but never imported by any route, service, or UI component
+    action: "Phase 2 deletes destination.ts (a leftover from a prior pivot)."
+
+  - id: dead-route-dirs
+    source: apps/web/src/app structure
+    claim: "App has /about, /admin/audit, /admin/destinations, /admin/live, /admin/login, /admin/settings, /admin/station, /live, /schedule pages"
+    verdict: false
+    evidence:
+      - All listed directories exist under apps/web/src/app but contain no page.tsx (except admin/login which Phase 3 fills in)
+    action: "Phase 2 prunes empty directories; Phase 3 adds admin/login/page.tsx."
+
+  - id: env-junk
+    source: apps/api/.env (local file, not committed)
+    claim: "apps/api/.env reflects what env.ts validates"
+    verdict: false
+    evidence:
+      - .env contains BACKEND_ENCRYPTION_KEY, ADMIN_SEED_*, AZURACAST_*, CLOUDFLARE_*, DISCORD_WEBHOOK_URL, STREAM_*, STATIC_NOW_PLAYING_*
+      - env.ts only validates PORT, APP_ENV, CORS_ALLOWED_ORIGINS, SQLITE_DB_PATH, STATION_NAME
+    action: "Phase 2 slims the local .env. Phase 3 adds ADMIN_USERS + SESSION_SECRET to env.ts. Rotate any leaked SESSION_SECRET before re-using."
+
+  - id: typescript-tests-ci
+    source: package.json scripts (typecheck, lint)
+    claim: "CI runs typecheck/lint/test"
+    verdict: false
+    evidence:
+      - .github/workflows/ only contains docs.yml (GitHub Pages)
+      - No vitest/jest/node:test in any package.json devDependencies
+    action: "Phase 4 adds vitest unit tests for liveRoomService state machine + a CI workflow that runs typecheck/lint/test."
+
+  # ─── Naming / branding ────────────────────────────────────────────────────
+
+  - id: name-frequency
+    source: docs/index.md (\"88.9 FM · Kansas City, Missouri\"), components/Header.tsx
+    claim: "Station identifies as 88.9 FM Kansas City"
+    verdict: verified
+    evidence:
+      - docs/index.md and Header.tsx use that exact string
+    action: "Cosmetic; flagged here so it stays consistent if the call sign changes."

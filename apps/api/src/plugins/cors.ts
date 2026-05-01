@@ -44,7 +44,20 @@ const corsPlugin: FastifyPluginAsync = async (fastify) => {
       }
 
       if (env.APP_ENV === 'development') {
-        callback(null, isAllowedDevelopmentOrigin(origin));
+        try {
+          const { hostname } = new URL(origin);
+          if (hostname === 'localhost' || hostname === '127.0.0.1') {
+            callback(null, true);
+            return;
+          }
+        } catch {
+          callback(null, false);
+          return;
+        }
+        // LAN-wide allow only when explicitly opted-in, so a misconfigured
+        // production deploy that accidentally has APP_ENV=development can't
+        // be reached from any 192.168.* origin.
+        callback(null, env.CORS_DEV_LAN ? isAllowedDevelopmentOrigin(origin) : false);
         return;
       }
 

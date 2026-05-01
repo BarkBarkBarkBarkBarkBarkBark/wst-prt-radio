@@ -6,14 +6,10 @@ COMPOSE_FILE="$ROOT_DIR/local_deploy.yaml"
 API_ENV_FILE="$ROOT_DIR/apps/api/.env"
 WEB_ENV_FILE="$ROOT_DIR/apps/web/.env.local"
 
-ROLE="all"
 REFRESH_ENV=0
 INSTALL_TAILSCALE=0
 SKIP_MONOREPO_START=0
-SKIP_AZURACAST_INSTALL=0
 LAN_IP_OVERRIDE=""
-ADMIN_EMAIL="admin@example.com"
-ADMIN_PASSWORD="change_me_on_first_login"
 
 log() {
   printf '\033[1;34m==>\033[0m %s\n' "$1"
@@ -33,14 +29,10 @@ usage() {
 Usage: $(basename "$0") [options]
 
 Options:
-  --role <all|azuracast|monorepo>   what to install (default: all; azuracast is vestigial)
   --refresh-env                     rewrite apps/api/.env and apps/web/.env.local
   --install-tailscale               install tailscale on the Linux machine
-  --skip-azuracast-install          do not run the AzuraCast installer
   --skip-monorepo-start             do not start api/web after bootstrap
   --lan-ip <ip>                     force the host/LAN IP used in generated env files
-  --admin-email <email>             bootstrap admin email for the API
-  --admin-password <password>       bootstrap admin password for the API
   -h, --help                        show this help
 
 Expected use over SSH:
@@ -49,8 +41,8 @@ Expected use over SSH:
   3. run this script
 
 Examples:
-  bash scripts/install-linux-machine.sh --role all --install-tailscale
-  bash scripts/install-linux-machine.sh --role monorepo --refresh-env --lan-ip 192.168.1.50
+  bash scripts/install-linux-machine.sh --install-tailscale
+  bash scripts/install-linux-machine.sh --refresh-env --lan-ip 192.168.1.50
 EOF
 }
 
@@ -94,19 +86,6 @@ detect_lan_ip() {
   printf '127.0.0.1\n'
 }
 
-random_hex() {
-  local bytes="$1"
-  if command -v openssl >/dev/null 2>&1; then
-    openssl rand -hex "$bytes"
-    return
-  fi
-
-  python3 - <<PY
-import secrets
-print(secrets.token_hex($bytes))
-PY
-}
-
 install_apt_prereqs() {
   require_command apt-get
   log 'installing base packages'
@@ -148,25 +127,9 @@ write_api_env() {
   cat > "$API_ENV_FILE" <<EOF
 PORT=3001
 APP_ENV=development
-SESSION_SECRET=$(random_hex 24)
-BACKEND_ENCRYPTION_KEY=$(random_hex 32)
+CORS_ALLOWED_ORIGINS=http://$lan_ip:3000,http://localhost:3000
 SQLITE_DB_PATH=./data/wstprtradio.db
-ADMIN_SEED_EMAIL=$ADMIN_EMAIL
-ADMIN_SEED_PASSWORD=$ADMIN_PASSWORD
-STREAM_PUBLIC_URL=http://$lan_ip:8000/radio.mp3
-STREAM_METADATA_PROVIDER=static
-STATIC_NOW_PLAYING_TITLE=West Port Radio
-STATIC_NOW_PLAYING_ARTIST=Icecast Stream
-STATIC_NOW_PLAYING_ALBUM=
-AZURACAST_BASE_URL=
-AZURACAST_PUBLIC_STREAM_URL=
-AZURACAST_PUBLIC_API_URL=
-AZURACAST_API_KEY=
-AZURACAST_STATION_ID=1
-CLOUDFLARE_ACCOUNT_ID=
-CLOUDFLARE_STREAM_API_TOKEN=
-CLOUDFLARE_LIVE_INPUT_ID=
-DISCORD_WEBHOOK_URL=
+STATION_NAME=West Port Radio
 EOF
 }
 
@@ -199,24 +162,6 @@ ensure_env_files() {
   fi
 }
 
-install_azuracast() {
-  [[ "$SKIP_AZURACAST_INSTALL" -eq 1 ]] && {
-    warn 'skipping AzuraCast install by request'
-    return
-  }
-
-  local install_dir="/opt/azuracast"
-  log "preparing AzuraCast in $install_dir"
-  $SUDO mkdir -p "$install_dir"
-  if [[ ! -f "$install_dir/docker.sh" ]]; then
-    $SUDO curl -fsSL https://raw.githubusercontent.com/AzuraCast/AzuraCast/main/docker.sh -o "$install_dir/docker.sh"
-    $SUDO chmod +x "$install_dir/docker.sh"
-  fi
-
-  log 'running AzuraCast installer'
-  $SUDO bash "$install_dir/docker.sh" install
-}
-
 start_monorepo() {
   log 'pulling node images'
   docker_compose pull
@@ -245,14 +190,10 @@ Services in this architecture:
   - API docs:                 http://$lan_ip:3001/docs
   - Next.js web via Docker:   http://$lan_ip:3000
 
-Optional legacy service:
-  - AzuraCast on Linux:       http://$lan_ip:8080
-
 What you still need to do manually:
-  1. bring up Icecast or another compatible stream source
-  2. confirm http://$lan_ip:8000/radio.mp3 plays directly
-  3. use BUTT, OBS, Mixxx, or Liquidsoap as the source encoder
-  4. if you insist on reviving AzuraCast, fill in the legacy AZURACAST_* vars manually
+  1. bring up Icecast or another compatible stream source (compose stack includes icecast when using local_deploy)
+  2. confirm http://$lan_ip:8000/radio.mp3 plays directly when icecast is running
+  3. optional: broadcast live from /stream (browser mic → WebRTC listeners)
 
 Optional:
   - finish tailscale setup with: sudo tailscale up
@@ -267,21 +208,12 @@ EOF
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --role)
-      [[ $# -ge 2 ]] || die '--role requires a value'
-      ROLE="$2"
-      shift 2
-      ;;
     --refresh-env)
       REFRESH_ENV=1
       shift
       ;;
     --install-tailscale)
       INSTALL_TAILSCALE=1
-      shift
-      ;;
-    --skip-azuracast-install)
-      SKIP_AZURACAST_INSTALL=1
       shift
       ;;
     --skip-monorepo-start)
@@ -291,16 +223,6 @@ while [[ $# -gt 0 ]]; do
     --lan-ip)
       [[ $# -ge 2 ]] || die '--lan-ip requires a value'
       LAN_IP_OVERRIDE="$2"
-      shift 2
-      ;;
-    --admin-email)
-      [[ $# -ge 2 ]] || die '--admin-email requires a value'
-      ADMIN_EMAIL="$2"
-      shift 2
-      ;;
-    --admin-password)
-      [[ $# -ge 2 ]] || die '--admin-password requires a value'
-      ADMIN_PASSWORD="$2"
       shift 2
       ;;
     -h|--help)
@@ -313,11 +235,6 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-case "$ROLE" in
-  all|azuracast|monorepo) ;;
-  *) die '--role must be one of: all, azuracast, monorepo' ;;
-esac
-
 require_linux
 install_apt_prereqs
 install_docker
@@ -329,13 +246,7 @@ fi
 LAN_IP="$(detect_lan_ip)"
 log "using host IP $LAN_IP"
 
-if [[ "$ROLE" == "all" || "$ROLE" == "azuracast" ]]; then
-  install_azuracast
-fi
-
-if [[ "$ROLE" == "all" || "$ROLE" == "monorepo" ]]; then
-  ensure_env_files "$LAN_IP"
-  start_monorepo
-fi
+ensure_env_files "$LAN_IP"
+start_monorepo
 
 print_summary "$LAN_IP"

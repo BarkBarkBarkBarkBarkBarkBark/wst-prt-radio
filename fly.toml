@@ -11,6 +11,9 @@ primary_region = "iad"
   CORS_ALLOWED_ORIGINS = "https://wst-prt-radio.vercel.app"
   STATION_NAME = "West Port Radio"
 
+# SESSION_SECRET and ADMIN_USERS must be set as Fly secrets, not committed here.
+# See scripts/set-fly-env.sh.
+
 [mounts]
   source = "data"
   destination = "/data"
@@ -19,5 +22,18 @@ primary_region = "iad"
   internal_port = 3001
   force_https = true
   auto_start_machines = true
+  # WebRTC peer connections die under cold start, keep at least one machine warm.
   auto_stop_machines = false
   min_machines_running = 1
+
+  [[http_service.checks]]
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "30s"
+    method = "GET"
+    path = "/health"
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1

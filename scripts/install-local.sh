@@ -36,7 +36,6 @@ Options:
   --refresh-env             overwrite apps/api/.env and apps/web/.env.local
   --refresh-stack-env       overwrite local_deploy.env
   --stream-host <host>      host or LAN IP where the Icecast-compatible stream is reachable
-  --azuracast-host <host>   legacy alias for --stream-host
   --no-start                prepare envs and images, but do not start services
   --no-open                 do not open local UIs automatically after startup
   -h, --help                show this help
@@ -139,25 +138,9 @@ write_api_env() {
   cat > "$API_ENV_FILE" <<EOF
 PORT=3001
 APP_ENV=development
-SESSION_SECRET=$(random_text_secret)
-BACKEND_ENCRYPTION_KEY=$(random_hex 32)
+CORS_ALLOWED_ORIGINS=http://$lan_ip:3000,http://localhost:3000
 SQLITE_DB_PATH=./data/wstprtradio.db
-ADMIN_SEED_EMAIL=admin@example.com
-ADMIN_SEED_PASSWORD=change_me_on_first_login
-STREAM_PUBLIC_URL=http://$lan_ip:8000/radio.mp3
-STREAM_METADATA_PROVIDER=static
-STATIC_NOW_PLAYING_TITLE=West Port Radio
-STATIC_NOW_PLAYING_ARTIST=Icecast Stream
-STATIC_NOW_PLAYING_ALBUM=
-AZURACAST_BASE_URL=
-AZURACAST_PUBLIC_STREAM_URL=
-AZURACAST_PUBLIC_API_URL=
-AZURACAST_API_KEY=
-AZURACAST_STATION_ID=1
-CLOUDFLARE_ACCOUNT_ID=
-CLOUDFLARE_STREAM_API_TOKEN=
-CLOUDFLARE_LIVE_INPUT_ID=
-DISCORD_WEBHOOK_URL=
+STATION_NAME=West Port Radio
 EOF
 }
 
@@ -296,11 +279,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     --stream-host)
       [[ $# -ge 2 ]] || die "--stream-host requires a value"
-      STREAM_HOST="$2"
-      shift 2
-      ;;
-    --azuracast-host)
-      [[ $# -ge 2 ]] || die "--azuracast-host requires a value"
       STREAM_HOST="$2"
       shift 2
       ;;

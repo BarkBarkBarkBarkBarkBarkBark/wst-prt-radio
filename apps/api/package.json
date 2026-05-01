@@ -8,7 +8,8 @@
     "dev": "node --env-file=.env --import tsx/esm src/index.ts",
     "build": "tsc --project tsconfig.json",
     "start": "node dist/index.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "SQLITE_DB_PATH=':memory:' APP_ENV=test ADMIN_USERS=marco:barkbark SESSION_SECRET=$(printf 'a%.0s' {1..64}) node --import tsx/esm --test 'src/**/*.test.ts'"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",

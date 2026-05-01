@@ -3,181 +3,59 @@ layout: default
 title: Fly.io + Vercel Deploy Guide
 ---
 
-# Fly.io + Vercel Deploy Guide
+# Fly.io + Vercel
 
-This repo is set up to deploy as:
+- **Vercel** — Next.js front-end (`apps/web`). **Auto-deploys on push to `main`**.
+- **Fly.io** — Fastify API (REST + WebSocket `/signal` + always-on file streaming). **Manual deploy via `fly deploy`**.
 
-- frontend: Vercel
-- backend API: Fly.io
+There is exactly **one** canonical Fly config: [`fly.toml`](../fly.toml) at the repo root (`wst-prt-radio/fly.toml`). Run `fly deploy` from that directory.
 
-The browser live-room feature is peer-to-peer WebRTC audio. That means Fly mostly handles:
-
-- room join / leave
-- server-sent events
-- signaling messages
-- admin API
-- SQLite-backed settings and audit data
-
-It does **not** carry the live audio media itself in the current version.
-
-## Recommended production shape
-
-### Vercel
+## Vercel
 
 - Project root directory: `apps/web`
-- Framework preset: Next.js
-- Build settings: use [apps/web/vercel.json](../apps/web/vercel.json)
+- Build / install commands are configured in [`apps/web/vercel.json`](../apps/web/vercel.json).
+- Environment variables (all `NEXT_PUBLIC_*` are baked into the client bundle at build time — never put secrets here):
+  - `NEXT_PUBLIC_API_BASE_URL` — `https://wst-prt-radio.fly.dev` (or your custom API domain)
+  - `NEXT_PUBLIC_PUBLIC_SITE_URL` — your Vercel URL (e.g. `https://wst-prt-radio.vercel.app`)
 
-### Fly.io
+Roll back via the Vercel dashboard → Deployments → Promote previous.
 
-- Deploy command should be run from the repo root
-- Fly config file: [infra/fly/fly.toml](../infra/fly/fly.toml)
-- Dockerfile path inside that config: [apps/api/Dockerfile](../apps/api/Dockerfile)
-
-## What size Fly instance to start with
-
-Start with:
-
-- `shared-cpu-1x`
-- `512mb` RAM
-- `1` machine
-
-That is a good first size because the API is mainly Fastify + SQLite + SSE signaling.
-
-Move to `1gb` if you expect:
-
-- lots of concurrent open live-room tabs
-- many simultaneous SSE clients
-- heavier admin usage
-- frequent deploy-time OOMs or runtime memory pressure
-
-If this stays mostly in the “small internet radio / open mic” range, `512mb` is a sensible default.
-
-## Fly volume
-
-The API uses SQLite, so you should create a persistent Fly volume before first deploy.
-
-Typical size:
-
-- `1gb` is enough to start
-
-The configured mount target is `/data` and the DB path is `/data/wstprtradio.db`.
-
-## Fly setup steps
-
-From the repo root:
-
-1. create the Fly app
-2. create the volume
-3. set secrets
-4. deploy
-
-Example flow:
+## Fly.io
 
 ```bash
-fly launch --no-deploy --copy-config --name your-api-app-name --region iad
-fly volumes create wstprtradio_data --region iad --size 1 --app your-api-app-name
-FLY_APP_NAME=your-api-app-name bash infra/fly/deploy.sh
+cd wst-prt-radio
+fly deploy --config fly.toml
 ```
 
-## Fly secrets to set
+The Dockerfile at [`apps/api/Dockerfile`](../apps/api/Dockerfile) is referenced by `fly.toml` and copies the whole monorepo, builds `@wstprtradio/shared` then `@wstprtradio/api`, and serves on port 3001.
 
-Set these on the Fly app:
+### One-time setup
 
-- `SESSION_SECRET`
-- `BACKEND_ENCRYPTION_KEY`
-- `ADMIN_SEED_EMAIL`
-- `ADMIN_SEED_PASSWORD`
-- `CORS_ALLOWED_ORIGINS`
-- `STREAM_PUBLIC_URL`
-- `STREAM_METADATA_PROVIDER`
-- `STATIC_NOW_PLAYING_TITLE`
-- `STATIC_NOW_PLAYING_ARTIST`
-- `STATIC_NOW_PLAYING_ALBUM`
-- `LIVE_ROOM_DEFAULT_TITLE`
-- `LIVE_ROOM_DEFAULT_ACCESS`
-- `LIVE_ROOM_DEFAULT_MODE`
-- `LIVE_ROOM_SHARED_PASSPHRASE`
-- `LIVE_ROOM_HOST_SECRET`
+```bash
+fly volumes create data --app wst-prt-radio --region iad --size 1
+```
 
-Optional legacy / video secrets:
+The volume mounts at `/data` and stores the SQLite database (`SQLITE_DB_PATH=/data/wstprtradio.db`).
 
-- `AZURACAST_BASE_URL`
-- `AZURACAST_PUBLIC_STREAM_URL`
-- `AZURACAST_PUBLIC_API_URL`
-- `AZURACAST_API_KEY`
-- `AZURACAST_STATION_ID`
-- `CLOUDFLARE_ACCOUNT_ID`
-- `CLOUDFLARE_STREAM_API_TOKEN`
-- `CLOUDFLARE_LIVE_INPUT_ID`
-- `DISCORD_WEBHOOK_URL`
+### Required secrets
 
-For a standard public deployment with Vercel frontend on `https://wstprtradio.com`, set:
+```bash
+ADMIN_USERS='marco:<password>,mun:<password>' \
+SESSION_SECRET=$(openssl rand -hex 32) \
+CORS_ALLOWED_ORIGINS='https://wst-prt-radio.vercel.app' \
+./scripts/set-fly-env.sh
+```
 
-- `CORS_ALLOWED_ORIGINS=https://wstprtradio.com,https://www.wstprtradio.com`
+The script refuses to run without `ADMIN_USERS`. `SESSION_SECRET` is auto-generated if not provided. The boot-time validation in [`apps/api/src/lib/env.ts`](../apps/api/src/lib/env.ts) refuses to start the API in production without both.
 
-If you serve admin from another web origin, include that too.
+### Health checks
 
-## Vercel setup steps
+`fly.toml` defines a `[[http_service.checks]]` block that pings `GET /health` every 15 s. `/health` is intentionally cheap (no DB). For a deeper probe use `/ready` (runs `SELECT 1`).
 
-Create a Vercel project pointed at this repo and set:
+### Cold starts
 
-- Root Directory: `apps/web`
+The Fly config sets `auto_stop_machines = false` and `min_machines_running = 1` because WebRTC peer connections die when the machine sleeps. Don't change this without thinking carefully about cost vs UX.
 
-Then add these environment variables:
+## WebRTC
 
-- `NEXT_PUBLIC_API_BASE_URL=https://your-api-app-name.fly.dev`
-- `NEXT_PUBLIC_PUBLIC_SITE_URL=https://your-site-domain.com`
-- `NEXT_PUBLIC_STREAM_URL=https://your-stream-domain-or-url`
-
-If you later attach custom domains:
-
-- frontend custom domain on Vercel, e.g. `wstprtradio.com`
-- API custom domain on Fly, e.g. `api.wstprtradio.com`
-
-Then update:
-
-- `NEXT_PUBLIC_API_BASE_URL`
-- `NEXT_PUBLIC_PUBLIC_SITE_URL`
-- Fly `CORS_ALLOWED_ORIGINS`
-
-## Which directory to point each platform at
-
-### Fly.io
-
-- run deploys from the repo root
-- use `infra/fly/fly.toml`
-- do **not** point Fly at `apps/api` directly unless you also rewrite the build config
-
-### Vercel
-
-- set the project root directory to `apps/web`
-
-## Important current limitation
-
-The `/live` browser mic flow currently sends audio directly between browsers with WebRTC.
-
-That means:
-
-- users on the public web can join and hear each other
-- Fly only handles signaling
-- this does **not** automatically become the Icecast station source
-
-## Internet reliability note
-
-The current client uses a public STUN server only.
-
-That is enough to get many browser-to-browser connections working, but not all of them.
-
-For a more reliable public internet launch, add a TURN service later so users behind stricter NATs can still connect.
-
-If you want browser “Go live” to also feed the station stream, that is a separate bridge step.
-
-## Quick sanity checklist
-
-- Fly `/health` returns `200`
-- Fly `/public/live-room` returns JSON
-- Vercel site loads
-- Vercel frontend can join `/live`
-- browser console shows no CORS errors
-- if using login/admin, API cookies work over HTTPS
+No special Fly routes are needed. `/signal` is a WebSocket; audio itself flows browser-to-browser. The web app embeds Google STUN URLs as `iceServers` so most NATs traverse without help. If listeners on cellular / strict NAT fail to connect, see [runbook → "Listeners can't hear live audio on cellular"](runbook.md#listeners-cant-hear-live-audio-on-cellular--strict-nat) for the front-end-only TURN upgrade.

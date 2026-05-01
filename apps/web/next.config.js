@@ -4,7 +4,6 @@ const nextConfig = {
   images: {
     remotePatterns: [
       { protocol: 'https', hostname: 'radio.wstprtradio.com' },
-      { protocol: 'https', hostname: 'azura-admin.wstprtradio.com' },
     ],
   },
   async headers() {

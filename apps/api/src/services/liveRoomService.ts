@@ -136,9 +136,15 @@ function endSession(sessionId: string | null, reason: string): void {
 
 function normalizeState(): StreamStateRow {
   const state = readState();
-  if (state.station_state === 'live' && !getConnectionByPeerId(state.broadcaster_peer_id)) {
+  if (state.broadcaster_peer_id && !getConnectionByPeerId(state.broadcaster_peer_id)) {
+    // Stranded broadcaster_peer_id with no live socket. Close the session and
+    // clear the slot regardless of station_state so the next admin/open or
+    // join_as_broadcaster doesn't get rejected with "someone is already live".
+    // Preserve the station_state itself: a `closed` station stays closed,
+    // a `blocked` station stays blocked, a `live` station drops back to `open`.
     endSession(state.live_session_id, 'server_recovered_without_broadcaster');
-    return setState({ stationState: 'open' });
+    const nextState: StationState = state.station_state === 'live' ? 'open' : state.station_state;
+    return setState({ stationState: nextState });
   }
   return state;
 }
@@ -528,7 +534,15 @@ export function handleSignalMessage(connectionId: string, rawMessage: unknown): 
     return;
   }
 
-  relaySignal(connection, message);
+  // Never let a single bad signal payload tear down the whole socket loop:
+  // a peer can disappear, a stale relay can race against a state change, etc.
+  // Drop the offending message and let the client recover via state polling
+  // instead of force-disconnecting and triggering a reconnect storm.
+  try {
+    relaySignal(connection, message);
+  } catch {
+    // Intentionally swallowed; relays are best-effort.
+  }
 }
 
 export function handleSignalDisconnect(connectionId: string): void {

@@ -31,6 +31,7 @@ export async function apiFetch<T>(path: string, options: ApiOptions = {}): Promi
 
   const response = await fetch(url, {
     ...init,
+    credentials: init.credentials ?? 'include',
     headers: {
       ...(init.body ? { 'Content-Type': 'application/json' } : {}),
       ...init.headers,
