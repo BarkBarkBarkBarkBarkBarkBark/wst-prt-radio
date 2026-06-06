@@ -27,6 +27,13 @@ function runMigrations(database: Database.Database): void {
   );
   database.exec(migrationSql);
 
+  // Apply events migration
+  const eventsSql = readFileSync(
+    join(__dirname, 'migrations', '002_events.sql'),
+    'utf8',
+  );
+  database.exec(eventsSql);
+
   // Data migrations: rename actor_user_id -> actor if the old column exists
   const auditCols: { name: string }[] = database
     .prepare("PRAGMA table_info(audit_log)")

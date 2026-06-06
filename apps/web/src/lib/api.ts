@@ -33,7 +33,8 @@ export async function apiFetch<T>(path: string, options: ApiOptions = {}): Promi
     ...init,
     credentials: init.credentials ?? 'include',
     headers: {
-      ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+      // Don't set Content-Type for FormData — browser must set it (with boundary)
+      ...(init.body && !(init.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}),
       ...init.headers,
     },
   });

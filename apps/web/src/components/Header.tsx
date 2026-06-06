@@ -25,8 +25,8 @@ function RadioTowerIcon({ className }: { className?: string }) {
 
 const NAV_ITEMS = [
   { label: 'Home', href: '/' },
-  { label: 'Stream', href: '/stream' },
-  { label: 'Admin', href: '/admin' },
+  { label: 'Events', href: '/events' },
+  { label: 'Artists', href: '/artists' },
 ];
 
 export function Header() {

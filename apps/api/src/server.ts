@@ -4,6 +4,7 @@ import fastifySession from '@fastify/session';
 import fastifySwagger from '@fastify/swagger';
 import fastifySwaggerUi from '@fastify/swagger-ui';
 import fastifyWebsocket from '@fastify/websocket';
+import fastifyMultipart from '@fastify/multipart';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { env } from './lib/env.js';
@@ -16,8 +17,11 @@ import healthRoute from './routes/health.js';
 import autoplayRoute from './routes/public/autoplay.js';
 import statusRoute from './routes/public/status.js';
 import adminControlRoute from './routes/admin/control.js';
+import adminSongsRoute from './routes/admin/songs.js';
+import adminEventsRoute from './routes/admin/events.js';
 import authRoute from './routes/auth/index.js';
 import signalRoute from './routes/signal.js';
+import publicEventsRoute from './routes/public/events.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -71,12 +75,16 @@ export async function buildServer() {
   });
 
   await fastify.register(fastifyWebsocket);
+  await fastify.register(fastifyMultipart, { limits: { fileSize: 100 * 1024 * 1024 } }); // 100 MB
 
   await fastify.register(healthRoute);
   await fastify.register(authRoute);
   await fastify.register(autoplayRoute);
   await fastify.register(statusRoute);
   await fastify.register(adminControlRoute);
+  await fastify.register(adminSongsRoute);
+  await fastify.register(adminEventsRoute);
+  await fastify.register(publicEventsRoute);
   await fastify.register(signalRoute);
 
   return fastify;
