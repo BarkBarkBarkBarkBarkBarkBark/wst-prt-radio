@@ -38,6 +38,20 @@ case "$SUB" in
     ;;
 esac
 
+# The /data volume backs both the SQLite DB and uploaded songs (SONGS_DIR).
+# Make sure it exists before deploying so the mount in fly.toml is satisfiable.
+ensure_volume() {
+  local region
+  region="$(awk -F"'" '/^primary_region/ {print $2}' fly.toml 2>/dev/null)"
+  region="${region:-iad}"
+  if fly volumes list --app "$APP" 2>/dev/null | grep -q '\bdata\b'; then
+    echo "Volume 'data' already exists on $APP."
+  else
+    echo "Creating volume 'data' (1GB, region $region) on $APP..."
+    fly volumes create data --app "$APP" --region "$region" --size 1 --yes
+  fi
+}
+
 if [[ "$SUB" == "secrets" || "$SUB" == "all" ]]; then
   ADMIN_USERS="${ADMIN_USERS:-}"
   if [[ -z "$ADMIN_USERS" ]]; then
@@ -73,6 +87,7 @@ if [[ "$SUB" == "secrets" || "$SUB" == "all" ]]; then
 fi
 
 if [[ "$SUB" == "deploy" || "$SUB" == "all" ]]; then
+  ensure_volume
   echo "fly deploy --app $APP --config fly.toml ..."
   fly deploy --app "$APP" --config fly.toml --remote-only
   echo "Deploy done."

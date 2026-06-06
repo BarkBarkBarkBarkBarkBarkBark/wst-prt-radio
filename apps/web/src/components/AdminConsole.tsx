@@ -32,16 +32,17 @@ function SongsTab() {
   useEffect(() => { void loadSongs(); }, [loadSongs]);
 
   const upload = useCallback(async () => {
-    const file = fileRef.current?.files?.[0];
-    if (!file) { setMsg('Pick a file first.'); return; }
+    const files = fileRef.current?.files;
+    if (!files || files.length === 0) { setMsg('Pick one or more files first.'); return; }
     setUploading(true);
-    setMsg('Uploading…');
+    setMsg(`Uploading ${files.length} file${files.length > 1 ? 's' : ''}…`);
     const form = new FormData();
-    form.append('file', file);
+    for (const file of Array.from(files)) form.append('file', file);
     try {
-      const d = await apiFetch<{ ok: boolean; songs: Song[] }>('/admin/songs/upload', { method: 'POST', body: form });
+      const d = await apiFetch<{ ok: boolean; uploaded: string[]; skipped?: { filename: string; reason: string }[]; songs: Song[] }>('/admin/songs/upload', { method: 'POST', body: form });
       setSongs(d.songs);
-      setMsg(`✓ Uploaded "${file.name}"`);
+      const skippedNote = d.skipped && d.skipped.length > 0 ? ` (${d.skipped.length} skipped)` : '';
+      setMsg(`✓ Uploaded ${d.uploaded.length} file${d.uploaded.length === 1 ? '' : 's'}${skippedNote}`);
       if (fileRef.current) fileRef.current.value = '';
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Upload failed.');
@@ -61,11 +62,12 @@ function SongsTab() {
     <div className="space-y-6">
       <div className="rounded-[2rem] border border-stone-300/70 bg-white/80 p-6 space-y-4">
         <h3 className="text-lg font-semibold text-ink">Upload Song</h3>
-        <p className="text-xs text-muted">Supported: MP3, WAV, OGG, FLAC, M4A · Max 100 MB</p>
+        <p className="text-xs text-muted">Supported: MP3, WAV, OGG, FLAC, M4A · Max 100 MB each · Select multiple to bulk upload</p>
         <div className="flex flex-wrap items-center gap-3">
           <input
             ref={fileRef}
             type="file"
+            multiple
             accept=".mp3,.wav,.ogg,.flac,.m4a,.oga"
             className="text-sm text-muted file:mr-3 file:border file:border-ink file:bg-paper file:px-4 file:py-2 file:text-xs file:uppercase file:tracking-widest file:font-semibold cursor-pointer"
           />

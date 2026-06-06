@@ -75,7 +75,9 @@ export async function buildServer() {
   });
 
   await fastify.register(fastifyWebsocket);
-  await fastify.register(fastifyMultipart, { limits: { fileSize: 100 * 1024 * 1024 } }); // 100 MB
+  await fastify.register(fastifyMultipart, {
+    limits: { fileSize: 100 * 1024 * 1024, files: 50 }, // 100 MB per file, up to 50 files per upload
+  });
 
   await fastify.register(healthRoute);
   await fastify.register(authRoute);

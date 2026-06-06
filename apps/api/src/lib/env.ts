@@ -13,6 +13,10 @@ const EnvSchema = z.object({
   STATION_NAME: z.string().min(1).default('West Port Radio'),
   SESSION_SECRET: z.string().optional(),
   ADMIN_USERS: z.string().optional(),
+  // Absolute path where uploaded audio files live. In production this should
+  // point at a persistent volume (e.g. /data/songs on Fly). When unset, the
+  // app falls back to the repo-local ./songs directory for local development.
+  SONGS_DIR: z.string().optional(),
 });
 
 function validateEnv() {

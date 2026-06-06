@@ -1,14 +1,11 @@
-import { createWriteStream, existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { createWriteStream, existsSync, mkdirSync, rmSync } from 'node:fs';
 import { extname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
-import { fileURLToPath } from 'node:url';
-import { dirname } from 'node:path';
 import type { FastifyPluginAsync } from 'fastify';
 import { requireAdmin } from '../../lib/requireAdmin.js';
-import { getAlwaysOnPlaylist } from '../../services/autoplayService.js';
+import { getAlwaysOnPlaylist, getSongsDir } from '../../services/autoplayService.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const SONGS_DIR = join(__dirname, '..', '..', '..', '..', '..', 'songs');
+const SONGS_DIR = getSongsDir();
 
 const ALLOWED_EXTENSIONS = new Set(['.mp3', '.wav', '.ogg', '.flac', '.m4a', '.oga']);
 
@@ -29,23 +26,38 @@ const adminSongsRoute: FastifyPluginAsync = async (fastify) => {
       mkdirSync(SONGS_DIR, { recursive: true });
     }
 
-    const data = await request.file();
-    if (!data) {
+    // Accept one or many files in a single request so bulk uploads from the
+    // admin UI or the CLI script land in one round trip.
+    const uploaded: string[] = [];
+    const skipped: { filename: string; reason: string }[] = [];
+
+    for await (const part of request.files()) {
+      const ext = extname(part.filename).toLowerCase();
+      if (!ALLOWED_EXTENSIONS.has(ext)) {
+        skipped.push({ filename: part.filename, reason: `Unsupported file type: ${ext}` });
+        // Drain the stream so the multipart parser can move to the next part.
+        part.file.resume();
+        continue;
+      }
+
+      const safeFilename = sanitizeFilename(part.filename);
+      const destPath = join(SONGS_DIR, safeFilename);
+      await pipeline(part.file, createWriteStream(destPath));
+      uploaded.push(safeFilename);
+    }
+
+    if (uploaded.length === 0 && skipped.length === 0) {
       return reply.status(400).send({ error: 'No file provided' });
     }
 
-    const ext = extname(data.filename).toLowerCase();
-    if (!ALLOWED_EXTENSIONS.has(ext)) {
-      return reply.status(400).send({ error: `Unsupported file type: ${ext}. Allowed: mp3, wav, ogg, flac, m4a` });
+    if (uploaded.length === 0) {
+      return reply
+        .status(400)
+        .send({ error: skipped[0]?.reason ?? 'No supported files uploaded', skipped });
     }
 
-    const safeFilename = sanitizeFilename(data.filename);
-    const destPath = join(SONGS_DIR, safeFilename);
-
-    await pipeline(data.file, createWriteStream(destPath));
-
     const playlist = getAlwaysOnPlaylist();
-    return reply.send({ ok: true, filename: safeFilename, songs: playlist.tracks });
+    return reply.send({ ok: true, uploaded, skipped, songs: playlist.tracks });
   });
 
   fastify.delete('/admin/songs/:filename', async (request, reply) => {

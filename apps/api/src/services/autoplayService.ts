@@ -1,7 +1,8 @@
-import { createReadStream, existsSync, readdirSync } from 'node:fs';
+import { createReadStream, existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AlwaysOnState } from '@wstprtradio/shared';
+import { env } from '../lib/env.js';
 
 export interface AlwaysOnTrack {
   id: string;
@@ -16,7 +17,21 @@ export interface AlwaysOnPlaylist {
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const SONGS_DIR = join(__dirname, '..', '..', '..', '..', 'songs');
+const REPO_SONGS_DIR = join(__dirname, '..', '..', '..', '..', 'songs');
+
+// Canonical location for uploaded audio. Honour SONGS_DIR (set to a persistent
+// volume path in production, e.g. /data/songs on Fly) and fall back to the
+// repo-local ./songs directory for local development.
+const SONGS_DIR = env.SONGS_DIR && env.SONGS_DIR.trim().length > 0 ? env.SONGS_DIR : REPO_SONGS_DIR;
+
+// Make sure the directory exists at boot so the volume mount is usable
+// immediately and uploads/serving never race against a missing folder.
+mkdirSync(SONGS_DIR, { recursive: true });
+
+/** Absolute path to the directory where uploaded audio files are stored. */
+export function getSongsDir(): string {
+  return SONGS_DIR;
+}
 
 const MIME_BY_EXTENSION: Record<string, string> = {
   '.ogg': 'audio/ogg',
