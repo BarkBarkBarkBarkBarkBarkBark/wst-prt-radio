@@ -77,19 +77,27 @@ export function VinylRecord({
 
         <div className="absolute inset-[10%] rounded-full border border-white/[0.04]" />
 
-        <div className="relative z-10 flex h-28 w-28 flex-col items-center justify-center rounded-full border border-black/10 bg-accent-red text-paper shadow-inner sm:h-36 sm:w-36">
-          <span className="text-[0.55rem] font-bold uppercase tracking-[0.32em] sm:text-[0.62rem]">
-            West Port
-          </span>
-          <span className="mt-1 text-[0.52rem] uppercase tracking-[0.22em] text-paper/80 sm:text-[0.6rem]">
-            Orbit Bar
-          </span>
-          <div className="my-1.5 text-paper/90 sm:my-2">
+        <div className="relative z-10 flex h-28 w-28 items-center justify-center rounded-full border border-black/10 bg-accent-red text-paper shadow-inner sm:h-36 sm:w-36">
+          <svg viewBox="0 0 100 100" className="absolute inset-0 h-full w-full" aria-hidden="true">
+            <defs>
+              <path id="outerLabelPath" d="M 50,50 m -38,0 a 38,38 0 1,1 76,0 a 38,38 0 1,1 -76,0" />
+              <path id="innerLabelPath" d="M 50,50 m -30,0 a 30,30 0 1,0 60,0 a 30,30 0 1,0 -60,0" />
+            </defs>
+            <text className="fill-paper/90 text-[8px] font-bold tracking-[2px]">
+              <textPath href="#outerLabelPath" startOffset="50%" textAnchor="middle">
+                WEST PORT RADIO • WEST PORT RADIO
+              </textPath>
+            </text>
+            <text className="fill-paper/70 text-[6.5px] font-semibold tracking-[1.5px]">
+              <textPath href="#innerLabelPath" startOffset="50%" textAnchor="middle">
+                WEST PORT RADIO • WEST PORT RADIO
+              </textPath>
+            </text>
+          </svg>
+
+          <div className="relative z-10 text-paper/90">
             <AntennaIcon />
           </div>
-          <span className="text-[0.45rem] uppercase tracking-[0.3em] text-paper/70 sm:text-[0.5rem]">
-            KC → Void
-          </span>
         </div>
 
         <div className="absolute z-20 h-3 w-3 rounded-full bg-black" />

@@ -57,7 +57,7 @@ export default function HomePage() {
                 <p className="min-h-[1rem] text-xs font-mono text-muted truncate max-w-md">
                   {currentTrack ? currentTrack.title : ''}
                 </p>
-                <p className="text-[10px] font-mono uppercase tracking-[0.22em] text-muted">Random track each play for discovery</p>
+                <p className="text-[10px] font-mono uppercase tracking-[0.22em] text-muted"></p>
               </div>
             </div>
           </section>
