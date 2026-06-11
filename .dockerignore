@@ -14,3 +14,4 @@ apps/web/.env.local
 local_deploy.env
 media/library/*
 !media/library/.gitkeep
+songs/
