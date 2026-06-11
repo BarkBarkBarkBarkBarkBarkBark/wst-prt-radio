@@ -29,13 +29,13 @@ function PauseIcon() {
 export function PlayerBar() {
   const {
     enabled,
-    connected,
     message,
     status,
     volume,
     amplitude,
     setEnabled,
     handleVolumeChange,
+    skipTrack,
   } = useAudio();
 
   const isLive    = !!status?.broadcasterPresent;
@@ -99,6 +99,15 @@ export function PlayerBar() {
         }}
       >
         {enabled ? <PauseIcon /> : <PlayIcon />}
+      </button>
+
+      <button
+        type="button"
+        onClick={skipTrack}
+        className="h-10 px-3 flex items-center justify-center rounded-sm text-[10px] font-mono uppercase tracking-[0.2em] text-stone-700 border border-stone-300 hover:border-stone-500 transition-colors"
+        aria-label="Skip track"
+      >
+        Skip
       </button>
 
       <div className="flex-1 flex items-center justify-end gap-3">

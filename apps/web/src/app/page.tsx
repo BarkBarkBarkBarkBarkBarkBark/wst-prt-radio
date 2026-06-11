@@ -7,7 +7,7 @@ import { InkyHalo } from '@/components/InkyHalo';
 import { useAudio } from '@/lib/AudioProvider';
 
 export default function HomePage() {
-  const { status, amplitude, enabled, setEnabled, playlist, currentFallbackIndex } = useAudio();
+  const { status, amplitude, enabled, setEnabled, playlist, currentFallbackIndex, skipTrack } = useAudio();
   const stationState = status?.stationState ?? 'open';
   const listeners = status?.listenerCount ?? 0;
 
@@ -36,17 +36,28 @@ export default function HomePage() {
               <VinylRecord isLive={stationState === 'live'} amplitude={amplitude} isPlaying={enabled} />
 
               <div className="space-y-4">
-                <button
-                  type="button"
-                  onClick={() => setEnabled(!enabled)}
-                  className="border border-ink bg-ink px-10 py-4 text-sm font-bold uppercase tracking-[0.32em] text-paper transition-colors hover:border-accent-red hover:bg-accent-red"
-                >
-                  {enabled ? 'Pause' : 'Play'}
-                </button>
+                <div className="flex items-center justify-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setEnabled(!enabled)}
+                    className="border border-ink bg-ink px-10 py-4 text-sm font-bold uppercase tracking-[0.32em] text-paper transition-colors hover:border-accent-red hover:bg-accent-red"
+                  >
+                    {enabled ? 'Pause' : 'Play'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={skipTrack}
+                    className="border border-ink/40 px-6 py-4 text-xs font-bold uppercase tracking-[0.28em] text-ink transition-colors hover:border-accent-red hover:text-accent-red"
+                  >
+                    Skip
+                  </button>
+                </div>
 
                 <p className="min-h-[1rem] text-xs font-mono text-muted truncate max-w-md">
                   {currentTrack ? currentTrack.title : ''}
                 </p>
+                <p className="text-[10px] font-mono uppercase tracking-[0.22em] text-muted">Random track each play for discovery</p>
               </div>
             </div>
           </section>

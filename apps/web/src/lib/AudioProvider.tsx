@@ -40,6 +40,7 @@ export interface AudioContextValue {
   setEnabled: (v: boolean) => void;
   handleVolumeChange: (v: number) => void;
   handleTrackEnded: () => void;
+  skipTrack: () => void;
 }
 
 const AudioCtx = createContext<AudioContextValue | null>(null);
@@ -63,6 +64,16 @@ function serializeCandidate(c: RTCIceCandidate) {
     sdpMLineIndex: c.sdpMLineIndex,
     usernameFragment: c.usernameFragment ?? null,
   };
+}
+
+function pickRandomIndex(length: number, exclude?: number): number {
+  if (length <= 1) return 0;
+  let next = Math.floor(Math.random() * length);
+  if (exclude === undefined) return next;
+  while (next === exclude) {
+    next = Math.floor(Math.random() * length);
+  }
+  return next;
 }
 
 // ─── Provider ────────────────────────────────────────────────────────────────
@@ -171,12 +182,9 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
     audioRef.current.load();
   }, []);
 
-  /**
-   * Load a fallback track by index and seek to `seekSeconds` if provided.
-   * seekSeconds = (Date.now() - alwaysOnState.startedAt) / 1000 for sync.
-   */
+  /** Load a fallback track by index for this listener session. */
   const playFallbackTrack = useCallback(
-    async (index: number, seekSeconds = 0) => {
+    async (index: number) => {
       if (!audioRef.current || !playlist?.tracks.length || !enabledRef.current) return;
       const norm  = index % playlist.tracks.length;
       const track = playlist.tracks[norm];
@@ -186,19 +194,10 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
       audioRef.current.src       = `${API_BASE}${track.url}`;
       audioRef.current.load();
 
-      // Seek after metadata is available
-      const audio = audioRef.current;
-      const applySeek = () => {
-        if (seekSeconds > 0 && audio.duration > seekSeconds) {
-          audio.currentTime = seekSeconds;
-        }
-      };
-      audio.addEventListener('loadedmetadata', applySeek, { once: true });
-
       try {
-        await audio.play();
+        await audioRef.current.play();
         setCurrentFallbackIndex(norm);
-        setMessage(`Always-on: ${track.title}`);
+        setMessage(`Now playing: ${track.title}`);
       } catch {
         setMessage(`Ready: ${track.title}. Tap play if autoplay is blocked.`);
       }
@@ -207,11 +206,18 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
   );
 
   const ensureFallbackAudio = useCallback(
-    async (trackIndex?: number, startedAt?: number) => {
+    async (force = false) => {
       if (!playlist?.tracks.length) { setMessage('No tracks available yet.'); return; }
-      const idx        = trackIndex ?? currentFallbackIndex;
-      const seekSecs   = startedAt ? Math.max(0, (Date.now() - startedAt) / 1000) : 0;
-      await playFallbackTrack(idx, seekSecs);
+      if (
+        !force
+        && fallbackModeRef.current
+        && audioRef.current
+        && !audioRef.current.paused
+      ) {
+        return;
+      }
+      const next = pickRandomIndex(playlist.tracks.length, currentFallbackIndex);
+      await playFallbackTrack(next);
     },
     [currentFallbackIndex, playFallbackTrack, playlist],
   );
@@ -306,10 +312,8 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
 
         if (!payload.broadcasterPresent || !payload.broadcasterPeerId) {
           closePeer();
-          // Use server's alwaysOnState so all clients are in sync
           if (enabledRef.current) {
-            const aos = payload.alwaysOnState;
-            await ensureFallbackAudio(aos?.trackIndex, aos?.startedAt);
+            await ensureFallbackAudio();
           }
           return;
         }
@@ -400,24 +404,25 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!enabled || !playlist?.tracks.length || status?.broadcasterPresent) return;
-    const aos = status?.alwaysOnState;
-    void ensureFallbackAudio(aos?.trackIndex, aos?.startedAt);
+    void ensureFallbackAudio();
   }, [enabled, playlist, status?.broadcasterPresent]);
 
-  /**
-   * When a local track ends, tell the server to advance so all clients sync.
-   * The server broadcasts back a station_status with the new alwaysOnState.
-   */
   const handleTrackEnded = useCallback(() => {
     if (!fallbackModeRef.current) return;
-    void apiFetch('/public/autoplay/next', { method: 'POST' }).catch(() => {
-      // If the server call fails, just advance locally
-      if (playlist?.tracks.length) {
-        const next = (currentFallbackIndex + 1) % playlist.tracks.length;
-        void playFallbackTrack(next, 0);
-      }
-    });
+    if (!playlist?.tracks.length) return;
+    const next = pickRandomIndex(playlist.tracks.length, currentFallbackIndex);
+    void playFallbackTrack(next);
   }, [currentFallbackIndex, playFallbackTrack, playlist]);
+
+  const skipTrack = useCallback(() => {
+    if (status?.broadcasterPresent) {
+      setMessage('Live broadcast is active. Skip is available when fallback tracks are on.');
+      return;
+    }
+    if (!playlist?.tracks.length) return;
+    const next = pickRandomIndex(playlist.tracks.length, currentFallbackIndex);
+    void playFallbackTrack(next);
+  }, [currentFallbackIndex, playFallbackTrack, playlist, status?.broadcasterPresent]);
 
   const handleVolumeChange = useCallback(
     (val: number) => {
@@ -465,6 +470,7 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
         setEnabled,
         handleVolumeChange,
         handleTrackEnded,
+        skipTrack,
       }}
     >
       <audio ref={audioRef} className="hidden" onEnded={handleTrackEnded} />
