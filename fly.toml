@@ -2,13 +2,13 @@ app = "wst-prt-radio"
 primary_region = "iad"
 
 [build]
-  dockerfile = "apps/api/Dockerfile"
+  dockerfile = "Dockerfile"
 
 [env]
   PORT = "3001"
   APP_ENV = "production"
   SQLITE_DB_PATH = "/data/wstprtradio.db"
-  CORS_ALLOWED_ORIGINS = "https://wst-prt-radio.vercel.app"
+  CORS_ALLOWED_ORIGINS = "https://wstprtradio.com,https://www.wstprtradio.com,https://wst-prt-radio.vercel.app"
   STATION_NAME = "West Port Radio"
   # Uploaded audio lives on the persistent /data volume so songs survive
   # machine restarts and redeploys.

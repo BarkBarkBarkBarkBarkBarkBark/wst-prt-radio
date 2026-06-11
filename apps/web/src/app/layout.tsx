@@ -5,10 +5,10 @@ import { PlayerBar } from '@/components/PlayerBar';
 
 export const metadata: Metadata = {
   title: 'West Port Radio',
-  description: 'Pirate Radio from Kansas City, Missouri',
+  description: 'West Port Radio',
   openGraph: {
     title: 'West Port Radio',
-    description: 'Pirate Radio from Kansas City, Missouri',
+    description: 'West Port Radio',
     type: 'website',
   },
 };

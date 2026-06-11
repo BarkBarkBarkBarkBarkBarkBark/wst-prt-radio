@@ -48,9 +48,9 @@ Thumbs.db
 .env*.local
 
 # Uploaded audio lives on the Fly volume (SONGS_DIR), not in git.
-/songs/*.mp3
-/songs/*.wav
-/songs/*.ogg
-/songs/*.oga
-/songs/*.flac
-/songs/*.m4a
+/songs/**/*.mp3
+/songs/**/*.wav
+/songs/**/*.ogg
+/songs/**/*.oga
+/songs/**/*.flac
+/songs/**/*.m4a

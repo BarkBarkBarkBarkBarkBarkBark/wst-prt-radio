@@ -74,11 +74,11 @@ function saveMessages(msgs: ChatMessage[]) {
 // ---------------------------------------------------------------------------
 
 const SEED_MSGS: ChatMessage[] = [
-  { id: 's1', user: 'radio_dog',   text: 'this station is for him 🐾',     ts: Date.now() - 8 * 60000 },
-  { id: 's2', user: 'lunar_cat',   text: 'woof woof woof 🐺',              ts: Date.now() - 6 * 60000 },
-  { id: 's3', user: 'vinyl_owl',   text: 'signal strong tonight',          ts: Date.now() - 4 * 60000 },
-  { id: 's4', user: 'orbit_fox',   text: '10/10 would howl again',         ts: Date.now() - 2 * 60000 },
-  { id: 's5', user: 'neon_wolf',   text: 'big fan of whatever is playing', ts: Date.now() - 60000 },
+  { id: 's1', user: 'listener_1', text: 'locked in',                       ts: Date.now() - 8 * 60000 },
+  { id: 's2', user: 'listener_2', text: 'this mix is good',                ts: Date.now() - 6 * 60000 },
+  { id: 's3', user: 'listener_3', text: 'what is this track?',             ts: Date.now() - 4 * 60000 },
+  { id: 's4', user: 'listener_4', text: 'clean transition',                ts: Date.now() - 2 * 60000 },
+  { id: 's5', user: 'listener_5', text: 'staying on for this set',         ts: Date.now() - 60000 },
 ];
 
 // ---------------------------------------------------------------------------

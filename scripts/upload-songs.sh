@@ -37,6 +37,11 @@ if ! command -v curl >/dev/null 2>&1; then
   exit 1
 fi
 
+if ! command -v find >/dev/null 2>&1; then
+  echo "find is required." >&2
+  exit 1
+fi
+
 if [[ ! -d "$SRC_DIR" ]]; then
   echo "Source directory not found: $SRC_DIR" >&2
   exit 1
@@ -44,13 +49,18 @@ fi
 
 API_BASE_URL="${API_BASE_URL%/}"
 
-# Collect supported audio files (case-insensitive extensions).
-shopt -s nullglob nocaseglob
+# Collect supported audio files recursively (case-insensitive extensions).
 FILES=()
-for f in "$SRC_DIR"/*.mp3 "$SRC_DIR"/*.wav "$SRC_DIR"/*.ogg "$SRC_DIR"/*.oga "$SRC_DIR"/*.flac "$SRC_DIR"/*.m4a; do
+while IFS= read -r -d '' f; do
   FILES+=("$f")
-done
-shopt -u nullglob nocaseglob
+done < <(find "$SRC_DIR" -type f \( \
+  -iname '*.mp3' -o \
+  -iname '*.wav' -o \
+  -iname '*.ogg' -o \
+  -iname '*.oga' -o \
+  -iname '*.flac' -o \
+  -iname '*.m4a' \
+\) -print0 | sort -z)
 
 if [[ ${#FILES[@]} -eq 0 ]]; then
   echo "No audio files found in $SRC_DIR (looked for mp3/wav/ogg/oga/flac/m4a)." >&2
@@ -80,7 +90,9 @@ flush_batch() {
   [[ ${#batch[@]} -eq 0 ]] && return 0
   local form=()
   for file in "${batch[@]}"; do
-    form+=(-F "file=@${file}")
+    local rel="${file#$SRC_DIR/}"
+    local upload_name="${rel//\// - }"
+    form+=(-F "file=@${file};filename=${upload_name}")
   done
   echo "→ uploading batch of ${#batch[@]}…"
   if curl -fsS ${COOKIE_ARGS[@]+"${COOKIE_ARGS[@]}"} "${form[@]}" "$API_BASE_URL/admin/songs/upload" >/dev/null; then

@@ -454,7 +454,7 @@ export function StreamClient() {
               ))}
             </select>
             {hostDeviceId && hostDeviceId !== 'default' && (
-              <span className="mt-1 inline-block text-xs text-emerald-600">DSP off — clean signal for interfaces &amp; virtual cables</span>
+              <span className="mt-1 inline-block text-xs text-emerald-600">DSP off for interfaces and virtual cables</span>
             )}
           </label>
 
@@ -462,7 +462,7 @@ export function StreamClient() {
             Display name (optional)
             <input value={displayName} onChange={(e) => setDisplayName(e.target.value)}
               className="mt-2 w-full rounded-2xl border border-stone-300 bg-white px-4 py-3 text-ink outline-none focus:border-accent-red"
-              placeholder="DJ Dogboat" maxLength={80} />
+              placeholder="Host" maxLength={80} />
           </label>
 
           <audio ref={monitorRef} muted autoPlay className="hidden" />

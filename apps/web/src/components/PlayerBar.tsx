@@ -66,7 +66,6 @@ export function PlayerBar() {
         boxShadow: borderGlow !== 'none' ? borderGlow : '0 -1px 0 rgba(0,0,0,0.06)',
       }}
     >
-      {/* ── Left: status dot + track info ── */}
       <div className="flex-1 min-w-0 flex items-center gap-3">
         <div
           className="w-1.5 h-1.5 flex-shrink-0 rounded-sm"
@@ -79,13 +78,12 @@ export function PlayerBar() {
         />
         <div className="min-w-0">
           <p className="text-[9px] font-mono uppercase tracking-[0.22em] text-stone-400 leading-none mb-0.5">
-            {isLive ? 'live broadcast' : 'always-on'}
+            {isLive ? 'live' : 'on air'}
           </p>
           <p className="text-[11px] text-stone-600 truncate font-mono leading-none">{trackLine}</p>
         </div>
       </div>
 
-      {/* ── Center: play / pause — softened with rounded-sm ── */}
       <button
         type="button"
         onClick={() => setEnabled(!enabled)}
@@ -103,16 +101,10 @@ export function PlayerBar() {
         {enabled ? <PauseIcon /> : <PlayIcon />}
       </button>
 
-      {/* ── Right: listener count + signal + volume ── */}
       <div className="flex-1 flex items-center justify-end gap-3">
         <span className="hidden sm:block text-[9px] font-mono uppercase tracking-[0.2em] text-stone-400">
-          {listeners}&nbsp;{listeners === 1 ? 'ear' : 'ears'}
+          {listeners}&nbsp;{listeners === 1 ? 'listener' : 'listeners'}
         </span>
-        {connected && (
-          <span className="hidden lg:block text-[8px] font-mono text-stone-300 uppercase tracking-widest">
-            ▲&nbsp;signal
-          </span>
-        )}
         <VolumeKnob value={volume} onChange={handleVolumeChange} size={48} label="" />
       </div>
     </div>

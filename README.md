@@ -44,6 +44,30 @@ fly deploy
 
 Set **`CORS_ALLOWED_ORIGINS`** to your real web origin(s), comma-separated.
 
+## Sync Untitled.stream Library Into Autoplay
+
+The repo includes a first-party sync utility that downloads tracks from Untitled
+project pages and uploads them to the API songs endpoint, so they show up in
+`/public/autoplay` immediately.
+
+Run from repo root:
+
+```bash
+API_BASE_URL=https://wst-prt-radio.fly.dev \
+UNTITLED_LIBRARY_URL=https://untitled.stream/library \
+UNTITLED_COOKIE='session=...' \
+API_ADMIN_USER=marco \
+API_ADMIN_PASS='...' \
+pnpm run sync:untitled
+```
+
+Notes:
+
+- For private libraries/projects, `UNTITLED_COOKIE` is required.
+- For public project URLs, you can skip cookie auth and provide
+	`UNTITLED_PROJECT_URLS` (comma-separated) instead.
+- Use `UNTITLED_DRY_RUN=1` first to preview what will be imported.
+
 ## Deploy web (Vercel)
 
 Root directory **`apps/web`**. Env:
