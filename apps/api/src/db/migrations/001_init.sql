@@ -33,3 +33,15 @@ CREATE TABLE IF NOT EXISTS audit_log (
   data_json TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS artists (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  bio TEXT,
+  image_url TEXT,
+  links_json TEXT NOT NULL DEFAULT '[]',
+  is_published INTEGER NOT NULL DEFAULT 1,
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);

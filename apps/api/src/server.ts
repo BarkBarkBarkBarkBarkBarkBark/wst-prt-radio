@@ -19,9 +19,11 @@ import statusRoute from './routes/public/status.js';
 import adminControlRoute from './routes/admin/control.js';
 import adminSongsRoute from './routes/admin/songs.js';
 import adminEventsRoute from './routes/admin/events.js';
+import adminArtistsRoute from './routes/admin/artists.js';
 import authRoute from './routes/auth/index.js';
 import signalRoute from './routes/signal.js';
 import publicEventsRoute from './routes/public/events.js';
+import publicArtistsRoute from './routes/public/artists.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -86,7 +88,9 @@ export async function buildServer() {
   await fastify.register(adminControlRoute);
   await fastify.register(adminSongsRoute);
   await fastify.register(adminEventsRoute);
+  await fastify.register(adminArtistsRoute);
   await fastify.register(publicEventsRoute);
+  await fastify.register(publicArtistsRoute);
   await fastify.register(signalRoute);
 
   return fastify;

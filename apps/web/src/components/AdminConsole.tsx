@@ -6,12 +6,23 @@ import type { AdminStatus, SignalServerMessage, StationStatus } from '@wstprtrad
 import { apiFetch, ApiError, getSignalUrl, API_BASE } from '@/lib/api';
 import { StatusBadge } from './StatusBadge';
 
-type Tab = 'radio' | 'songs' | 'events';
+type Tab = 'radio' | 'songs' | 'events' | 'artists';
 
 interface Song { id: string; title: string; filename: string; url: string; mimeType: string }
 interface Event {
   id: string; title: string; description: string | null; event_date: string;
   venue: string | null; ticket_url: string | null; image_url: string | null; is_published: number;
+}
+
+interface ArtistLink { label: string; url: string }
+
+interface Artist {
+  id: string;
+  name: string;
+  bio: string | null;
+  image_url: string | null;
+  links_json: string;
+  is_published: number;
 }
 
 // ─── Songs Tab ───────────────────────────────────────────────────────────────
@@ -263,6 +274,206 @@ function EventsTab() {
   );
 }
 
+// ─── Artists Tab ─────────────────────────────────────────────────────────────
+
+function ArtistsTab() {
+  const [artists, setArtists] = useState<Artist[]>([]);
+  const [msg, setMsg] = useState('');
+  const [form, setForm] = useState({ name: '', bio: '', image_url: '', links: [{ label: '', url: '' }] });
+  const [submitting, setSubmitting] = useState(false);
+
+  const loadArtists = useCallback(async () => {
+    try {
+      const d = await apiFetch<{ artists: Artist[] }>('/admin/artists');
+      setArtists(d.artists);
+    } catch {
+      setMsg('Failed to load artists.');
+    }
+  }, []);
+
+  useEffect(() => { void loadArtists(); }, [loadArtists]);
+
+  const createArtist = useCallback(async () => {
+    if (!form.name) { setMsg('Artist name is required.'); return; }
+    setSubmitting(true);
+    try {
+      const links = form.links.filter((link) => link.label.trim() && link.url.trim());
+      const d = await apiFetch<{ ok: boolean; artist: Artist }>('/admin/artists', {
+        method: 'POST',
+        body: JSON.stringify({ name: form.name, bio: form.bio, image_url: form.image_url, links }),
+      });
+      setArtists((prev) => [d.artist, ...prev]);
+      setForm({ name: '', bio: '', image_url: '', links: [{ label: '', url: '' }] });
+      setMsg('✓ Artist created.');
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Failed to create artist.');
+    } finally {
+      setSubmitting(false);
+    }
+  }, [form]);
+
+  const togglePublish = useCallback(async (artist: Artist) => {
+    try {
+      const d = await apiFetch<{ ok: boolean; artist: Artist }>(`/admin/artists/${artist.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ is_published: artist.is_published === 0 }),
+      });
+      setArtists((prev) => prev.map((item) => item.id === d.artist.id ? d.artist : item));
+    } catch {
+      setMsg('Update failed.');
+    }
+  }, []);
+
+  const deleteArtist = useCallback(async (id: string, name: string) => {
+    if (!confirm(`Delete "${name}"?`)) return;
+    try {
+      await apiFetch(`/admin/artists/${id}`, { method: 'DELETE' });
+      setArtists((prev) => prev.filter((item) => item.id !== id));
+      setMsg('✓ Artist deleted.');
+    } catch {
+      setMsg('Delete failed.');
+    }
+  }, []);
+
+  const updateLink = (index: number, key: 'label' | 'url', value: string) => {
+    setForm((current) => ({
+      ...current,
+      links: current.links.map((link, linkIndex) => (linkIndex === index ? { ...link, [key]: value } : link)),
+    }));
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-[2rem] border border-stone-300/70 bg-white/80 p-6 space-y-4">
+        <h3 className="text-lg font-semibold text-ink">Create Artist</h3>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1 sm:col-span-2">
+            <label className="text-[0.6rem] uppercase tracking-[0.3em] text-muted font-mono">Name *</label>
+            <input
+              value={form.name}
+              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+              placeholder="Artist name"
+              className="w-full border border-stone-300 bg-paper px-3 py-2 text-sm text-ink placeholder-stone-400 focus:border-ink focus:outline-none"
+            />
+          </div>
+          <div className="space-y-1 sm:col-span-2">
+            <label className="text-[0.6rem] uppercase tracking-[0.3em] text-muted font-mono">Bio</label>
+            <textarea
+              rows={4}
+              value={form.bio}
+              onChange={(e) => setForm((f) => ({ ...f, bio: e.target.value }))}
+              placeholder="Short artist bio…"
+              className="w-full border border-stone-300 bg-paper px-3 py-2 text-sm text-ink placeholder-stone-400 focus:border-ink focus:outline-none"
+            />
+          </div>
+          <div className="space-y-1 sm:col-span-2">
+            <label className="text-[0.6rem] uppercase tracking-[0.3em] text-muted font-mono">Image URL</label>
+            <input
+              type="url"
+              value={form.image_url}
+              onChange={(e) => setForm((f) => ({ ...f, image_url: e.target.value }))}
+              placeholder="https://…"
+              className="w-full border border-stone-300 bg-paper px-3 py-2 text-sm text-ink placeholder-stone-400 focus:border-ink focus:outline-none"
+            />
+          </div>
+          <div className="space-y-3 sm:col-span-2">
+            <div className="flex items-center justify-between gap-3">
+              <label className="text-[0.6rem] uppercase tracking-[0.3em] text-muted font-mono">Links</label>
+              <button
+                type="button"
+                onClick={() => setForm((f) => ({ ...f, links: [...f.links, { label: '', url: '' }] }))}
+                className="text-xs uppercase tracking-[0.25em] text-muted hover:text-ink"
+              >
+                Add link
+              </button>
+            </div>
+            <div className="space-y-3">
+              {form.links.map((link, index) => (
+                <div key={index} className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
+                  <input
+                    value={link.label}
+                    onChange={(e) => updateLink(index, 'label', e.target.value)}
+                    placeholder="Label"
+                    className="w-full border border-stone-300 bg-paper px-3 py-2 text-sm text-ink placeholder-stone-400 focus:border-ink focus:outline-none"
+                  />
+                  <input
+                    type="url"
+                    value={link.url}
+                    onChange={(e) => updateLink(index, 'url', e.target.value)}
+                    placeholder="https://…"
+                    className="w-full border border-stone-300 bg-paper px-3 py-2 text-sm text-ink placeholder-stone-400 focus:border-ink focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setForm((f) => ({ ...f, links: f.links.length > 1 ? f.links.filter((_, i) => i !== index) : f.links }))}
+                    className="text-xs uppercase tracking-[0.25em] text-muted hover:text-accent-red"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => void createArtist()}
+            disabled={submitting}
+            className="border border-ink bg-ink px-5 py-2 text-xs font-bold uppercase tracking-[0.25em] text-paper hover:border-accent-red hover:bg-accent-red disabled:opacity-50 transition-colors"
+          >
+            {submitting ? 'Saving…' : 'Create Artist'}
+          </button>
+          {msg && <p className="text-xs text-muted">{msg}</p>}
+        </div>
+      </div>
+
+      <div className="rounded-[2rem] border border-stone-300/70 bg-white/80 p-6 space-y-3">
+        <h3 className="text-lg font-semibold text-ink">Artists ({artists.length})</h3>
+        {artists.length === 0 ? (
+          <p className="text-sm text-muted">No artists yet.</p>
+        ) : (
+          <ul className="space-y-3">
+            {artists.map((artist) => {
+              const links = (() => {
+                try { return JSON.parse(artist.links_json) as ArtistLink[]; } catch { return []; }
+              })();
+
+              return (
+                <li key={artist.id} className="rounded-2xl border border-stone-200 bg-paper px-4 py-3 space-y-1">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-ink text-sm truncate">{artist.name}</p>
+                      {artist.bio ? <p className="text-xs text-muted">{artist.bio}</p> : null}
+                      {links.length > 0 ? <p className="text-xs text-muted">{links.map((link) => link.label).join(' · ')}</p> : null}
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0 text-xs uppercase tracking-widest">
+                      <button
+                        type="button"
+                        onClick={() => void togglePublish(artist)}
+                        className={`px-2 py-1 border text-[10px] ${artist.is_published ? 'border-emerald-400 text-emerald-700' : 'border-stone-300 text-muted'}`}
+                      >
+                        {artist.is_published ? 'Published' : 'Draft'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void deleteArtist(artist.id, artist.name)}
+                        className="text-muted hover:text-accent-red"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main AdminConsole ────────────────────────────────────────────────────────
 
 export function AdminConsole() {
@@ -356,6 +567,7 @@ export function AdminConsole() {
     { key: 'radio', label: 'Radio Control' },
     { key: 'songs', label: 'Songs' },
     { key: 'events', label: 'Events' },
+    { key: 'artists', label: 'Artists' },
   ];
 
   return (
@@ -465,6 +677,7 @@ export function AdminConsole() {
 
       {tab === 'songs' && <SongsTab />}
       {tab === 'events' && <EventsTab />}
+      {tab === 'artists' && <ArtistsTab />}
     </div>
   );
 }
