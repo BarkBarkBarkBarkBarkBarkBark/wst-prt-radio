@@ -33,12 +33,10 @@ export interface AudioContextValue {
   message: string;
   status: StationStatus | null;
   playlist: AlwaysOnPlaylist | null;
-  volume: number;
   currentFallbackIndex: number;
   audioRef: React.RefObject<HTMLAudioElement | null>;
   amplitude: number;
   setEnabled: (v: boolean) => void;
-  handleVolumeChange: (v: number) => void;
   handleTrackEnded: () => void;
   skipTrack: () => void;
 }
@@ -86,7 +84,6 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
   const [peerId, setPeerId]             = useState('');
   const [connected, setConnected]       = useState(false);
   const [currentFallbackIndex, setCurrentFallbackIndex] = useState(0);
-  const [volume, setVolumeState]        = useState(75);
   const [amplitude, setAmplitude]       = useState(0);
 
   const wsRef             = useRef<WebSocket | null>(null);
@@ -191,6 +188,7 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
       if (!track) return;
       fallbackModeRef.current    = true;
       audioRef.current.srcObject = null;
+      audioRef.current.volume    = 1;
       audioRef.current.src       = `${API_BASE}${track.url}`;
       audioRef.current.load();
 
@@ -263,6 +261,7 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
         if (audioRef.current) {
           stopFallbackAudio();
           audioRef.current.srcObject = stream ?? new MediaStream([event.track]);
+          audioRef.current.volume = 1;
           void audioRef.current.play().catch(() => {
             setMessage('Connected — tap play if audio is silent.');
           });
@@ -424,29 +423,11 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
     void playFallbackTrack(next);
   }, [currentFallbackIndex, playFallbackTrack, playlist, status?.broadcasterPresent]);
 
-  const handleVolumeChange = useCallback(
-    (val: number) => {
-      setVolumeState(val);
-      const audio = audioRef.current;
-      if (!audio) return;
-      if (val === 0) {
-        audio.pause();
-      } else {
-        audio.volume = val / 100;
-        if (audio.paused && (audio.src || audio.srcObject)) {
-          void audio.play().catch(() => {});
-        }
-        if (!enabled) setEnabled(true);
-      }
-    },
-    [enabled, setEnabled],
-  );
-
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
-    audio.volume = volume / 100;
-  }, [volume]);
+    audio.volume = 1;
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -463,12 +444,10 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
         message,
         status,
         playlist,
-        volume,
         currentFallbackIndex,
         audioRef,
         amplitude,
         setEnabled,
-        handleVolumeChange,
         handleTrackEnded,
         skipTrack,
       }}

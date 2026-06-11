@@ -8,7 +8,6 @@
  */
 
 import { useAudio } from '@/lib/AudioProvider';
-import { VolumeKnob } from './VolumeKnob';
 
 function PlayIcon() {
   return (
@@ -31,19 +30,19 @@ export function PlayerBar() {
     enabled,
     message,
     status,
-    volume,
     amplitude,
     setEnabled,
-    handleVolumeChange,
     skipTrack,
   } = useAudio();
 
   const isLive    = !!status?.broadcasterPresent;
   const listeners = status?.listenerCount ?? 0;
 
-  const trackLine = message.startsWith('Always-on:')
-    ? message.replace('Always-on: ', '')
-    : message;
+  const trackLine = message
+    .replace(/^Now playing:\s*/i, '')
+    .replace(/^Always-on:\s*/i, '')
+    .replace(/^Ready:\s*/i, '')
+    .replace(/\. Tap play if autoplay is blocked\.?$/i, '');
 
   // Sound-reactive glow on the top border
   const glowAlpha  = amplitude > 0.04 ? (0.3 + amplitude * 0.5).toFixed(2) : '0';
@@ -59,7 +58,7 @@ export function PlayerBar() {
 
   return (
     <div
-      className="fixed bottom-0 inset-x-0 z-50 h-[72px] flex items-center gap-3 px-4 sm:px-6"
+      className="fixed bottom-0 inset-x-0 z-50 min-h-[72px] grid grid-cols-[1fr_auto_auto] items-center gap-3 px-4 py-2 sm:px-6"
       style={{
         background: '#ffffff',
         borderTop: '1px solid #000',
@@ -80,7 +79,9 @@ export function PlayerBar() {
           <p className="text-[9px] font-mono uppercase tracking-[0.22em] text-stone-400 leading-none mb-0.5">
             {isLive ? 'live' : 'on air'}
           </p>
-          <p className="text-[11px] text-stone-600 truncate font-mono leading-none">{trackLine}</p>
+          <p className="text-[11px] text-stone-600 font-mono leading-tight whitespace-normal break-words">
+            {trackLine}
+          </p>
         </div>
       </div>
 
@@ -110,11 +111,10 @@ export function PlayerBar() {
         Skip
       </button>
 
-      <div className="flex-1 flex items-center justify-end gap-3">
-        <span className="hidden sm:block text-[9px] font-mono uppercase tracking-[0.2em] text-stone-400">
+      <div className="flex items-center justify-end">
+        <span className="text-[9px] font-mono uppercase tracking-[0.2em] text-stone-400 whitespace-nowrap">
           {listeners}&nbsp;{listeners === 1 ? 'listener' : 'listeners'}
         </span>
-        <VolumeKnob value={volume} onChange={handleVolumeChange} size={48} label="" />
       </div>
     </div>
   );
